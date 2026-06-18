@@ -18,6 +18,16 @@ func TestGetVideoInputRatio(t *testing.T) {
 		require.True(t, ok)
 		require.InDelta(t, 22.0/37.0, r, 1e-9)
 	})
+	t.Run("dreamina-seedance-2.0 命中（国外站命名，折扣与 doubao 同步）", func(t *testing.T) {
+		r, ok := GetVideoInputRatio("dreamina-seedance-2-0-260128")
+		require.True(t, ok)
+		require.InDelta(t, 28.0/46.0, r, 1e-9)
+	})
+	t.Run("dreamina-seedance-2.0-fast 命中（国外站命名，折扣与 doubao 同步）", func(t *testing.T) {
+		r, ok := GetVideoInputRatio("dreamina-seedance-2-0-fast-260128")
+		require.True(t, ok)
+		require.InDelta(t, 22.0/37.0, r, 1e-9)
+	})
 	t.Run("未配置模型回退 false", func(t *testing.T) {
 		r, ok := GetVideoInputRatio("doubao-seedance-1-0-pro-250528")
 		require.False(t, ok)

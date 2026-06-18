@@ -55,18 +55,25 @@ const (
 	//   model-square price (shown to users) = displayModelRatio * 2          ($/M)
 	//   actual charge                        = round(credit*creditTokenScale) * settleModelRatio * groupRatio
 	//                                        = credit * (creditTokenScale*settleModelRatio) * groupRatio
-	//                                        = credit * 30000 * groupRatio
-	//                                        => $0.06 / credit   (30000 / QuotaPerUnit, QuotaPerUnit=500000)
+	//                                        = credit * 36000 * groupRatio
+	//                                        => $0.072 / credit   (36000 / QuotaPerUnit, QuotaPerUnit=500000)
 	//
 	// This lets the model square show dreamina-aligned prices — seedance-2-0 at 7.7$/M
 	// (display ModelRatio 3.85) and seedance-2-0-fast at 5.6$/M (display ModelRatio 2.8) —
-	// while the per-credit charge stays at the original $0.06/credit for BOTH models,
-	// regardless of the display ratio.
+	// while the per-credit charge stays a single rate for BOTH models, regardless of the
+	// display ratio.
+	//
+	// 价位标定（2026-06）：之前 $0.06/credit（settleModelRatio 300）使 Pollo 渠道实扣
+	// 系统性低于火山直连（dreamina/doubao）的 token×ModelRatio 计费——无视频档位仅为
+	// 其 79%~87%。为让两条上游对同一 case 计费尽量一致，按无视频三档（2.0 720p/1080p、
+	// fast 720p）实测求最优单标量：放大 ×1.20 → settleModelRatio 360（$0.072/credit），
+	// 残差 ±5% 以内。注意：这是单标量折中，带视频档位未对齐（Pollo credit 不随输入视频
+	// 时长翻倍，仍偏低），如需逐 case 严格一致须改为按 spec 估算 token 计费。
 	//
 	// IMPORTANT: because of this decoupling, changing a model's admin ModelRatio only
 	// moves its displayed price, never the charge. To actually re-price Pollo, change
-	// settleModelRatio here (300 == $0.06/credit; e.g. -30% => 300*0.769 ≈ 230.7).
-	settleModelRatio = 300.0
+	// settleModelRatio here (360 == $0.072/credit; e.g. -30% => 360*0.7 = 252).
+	settleModelRatio = 360.0
 
 	// otherRatioKey labels the pre-charge multiplier injected by EstimateBilling.
 	otherRatioKey = "pollo_credit"
