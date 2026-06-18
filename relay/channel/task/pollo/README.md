@@ -87,9 +87,10 @@ content[] 的 reference_image/video_url/audio_url 映射）即走 `/ref2video`
 ## 3. 计费（与 Doubao 的差异点，非输入/输出契约）
 
 Pollo 按 **credit** 结算：提交时调免费 `/validate` 端点精确预扣，完成时按状态响应的
-实际 `credit` 经 `AdjustBillingOnComplete` 结算（`settleModelRatio` 固定 $0.06/credit，
-与后台展示 ModelRatio 解耦）。详见 `adaptor.go` 头部注释。Doubao 则按 `total_tokens`
-差额重算。两者对客户端透明。
+实际 `credit` 经 `AdjustBillingOnComplete` 结算（`settleModelRatio` 固定 $0.072/credit，
+与后台展示 ModelRatio 解耦；2026-06 由 $0.06 上调 ×1.20 以对齐火山直连 dreamina/doubao
+的 token 计费，无视频档残差 ±5%，带视频未对齐）。详见 `adaptor.go` 头部注释。Doubao
+则按 `total_tokens` 差额重算。两者对客户端透明。
 
 ## 4. 测试
 
