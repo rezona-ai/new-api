@@ -65,15 +65,20 @@ const (
 	//
 	// 价位标定（2026-06）：之前 $0.06/credit（settleModelRatio 300）使 Pollo 渠道实扣
 	// 系统性低于火山直连（dreamina/doubao）的 token×ModelRatio 计费——无视频档位仅为
-	// 其 79%~87%。为让两条上游对同一 case 计费尽量一致，按无视频三档（2.0 720p/1080p、
-	// fast 720p）实测求最优单标量：放大 ×1.20 → settleModelRatio 360（$0.072/credit），
-	// 残差 ±5% 以内。注意：这是单标量折中，带视频档位未对齐（Pollo credit 不随输入视频
-	// 时长翻倍，仍偏低），如需逐 case 严格一致须改为按 spec 估算 token 计费。
+	// 其 79%~87%。先放大 ×1.20 → 360（$0.072/credit）使两条上游 ±5% 对齐。
+	//
+	// 标定（2026-06，更新为 325）：业务要求 Pollo 在所有无视频规格上恒 ≤ 火山直连（最差
+	// 相等）。基于 60 次实测（15 组参数 × 4 模型，scripts/.batch60_final.json）逐档火山/Pollo
+	// 比值：fast 480p 0.92~0.97、fast 720p 0.95~0.96、2.0 1080p 0.97（这些档 Pollo 当前更贵，
+	// 违反目标）；2.0 720p 1.05、2.0 480p 2.1（已更便宜）。约束瓶颈为 fast 480p（V/P=0.921）。
+	// 因 Pollo 价格与本系数线性等比、且两模型共用单标量，须 settleModelRatio ≤ 360×0.921=331.6。
+	// 取 325（≈ -9.7%，$0.065/credit）留 ~2% 安全余量 → 最差档 Pollo 仍比火山便宜约 2%，
+	// 其余档更便宜。代价：2.0 档被连带多打折（如 2.0 1080p 由 0.97 变约 0.90）。
 	//
 	// IMPORTANT: because of this decoupling, changing a model's admin ModelRatio only
 	// moves its displayed price, never the charge. To actually re-price Pollo, change
-	// settleModelRatio here (360 == $0.072/credit; e.g. -30% => 360*0.7 = 252).
-	settleModelRatio = 360.0
+	// settleModelRatio here (325 == $0.065/credit; e.g. -30% from 360 => 252).
+	settleModelRatio = 325.0
 
 	// otherRatioKey labels the pre-charge multiplier injected by EstimateBilling.
 	otherRatioKey = "pollo_credit"
