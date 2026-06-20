@@ -55,18 +55,30 @@ const (
 	//   model-square price (shown to users) = displayModelRatio * 2          ($/M)
 	//   actual charge                        = round(credit*creditTokenScale) * settleModelRatio * groupRatio
 	//                                        = credit * (creditTokenScale*settleModelRatio) * groupRatio
-	//                                        = credit * 30000 * groupRatio
-	//                                        => $0.06 / credit   (30000 / QuotaPerUnit, QuotaPerUnit=500000)
+	//                                        = credit * 36000 * groupRatio
+	//                                        => $0.072 / credit   (36000 / QuotaPerUnit, QuotaPerUnit=500000)
 	//
 	// This lets the model square show dreamina-aligned prices — seedance-2-0 at 7.7$/M
 	// (display ModelRatio 3.85) and seedance-2-0-fast at 5.6$/M (display ModelRatio 2.8) —
-	// while the per-credit charge stays at the original $0.06/credit for BOTH models,
-	// regardless of the display ratio.
+	// while the per-credit charge stays a single rate for BOTH models, regardless of the
+	// display ratio.
+	//
+	// 价位标定（2026-06）：之前 $0.06/credit（settleModelRatio 300）使 Pollo 渠道实扣
+	// 系统性低于火山直连（dreamina/doubao）的 token×ModelRatio 计费——无视频档位仅为
+	// 其 79%~87%。先放大 ×1.20 → 360（$0.072/credit）使两条上游 ±5% 对齐。
+	//
+	// 标定（2026-06，更新为 325）：业务要求 Pollo 在所有无视频规格上恒 ≤ 火山直连（最差
+	// 相等）。基于 60 次实测（15 组参数 × 4 模型，scripts/.batch60_final.json）逐档火山/Pollo
+	// 比值：fast 480p 0.92~0.97、fast 720p 0.95~0.96、2.0 1080p 0.97（这些档 Pollo 当前更贵，
+	// 违反目标）；2.0 720p 1.05、2.0 480p 2.1（已更便宜）。约束瓶颈为 fast 480p（V/P=0.921）。
+	// 因 Pollo 价格与本系数线性等比、且两模型共用单标量，须 settleModelRatio ≤ 360×0.921=331.6。
+	// 取 325（≈ -9.7%，$0.065/credit）留 ~2% 安全余量 → 最差档 Pollo 仍比火山便宜约 2%，
+	// 其余档更便宜。代价：2.0 档被连带多打折（如 2.0 1080p 由 0.97 变约 0.90）。
 	//
 	// IMPORTANT: because of this decoupling, changing a model's admin ModelRatio only
 	// moves its displayed price, never the charge. To actually re-price Pollo, change
-	// settleModelRatio here (300 == $0.06/credit; e.g. -30% => 300*0.769 ≈ 230.7).
-	settleModelRatio = 300.0
+	// settleModelRatio here (325 == $0.065/credit; e.g. -30% from 360 => 252).
+	settleModelRatio = 325.0
 
 	// otherRatioKey labels the pre-charge multiplier injected by EstimateBilling.
 	otherRatioKey = "pollo_credit"
