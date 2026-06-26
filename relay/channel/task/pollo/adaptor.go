@@ -45,40 +45,46 @@ const (
 	// creditTokenScale converts a Pollo credit into the integer "token" unit carried
 	// through the generic video-billing pipeline (controller.UpdateVideoSingleTask):
 	//   TotalTokens = round(credit * creditTokenScale)
-	// This is only a transport/display unit for the credit. The actual charge is settled
-	// against settleModelRatio (below) — NOT the admin-configured "display" ModelRatio.
+	// This is only a transport/display unit for the credit, and it stays the REAL
+	// (discounted) credit Pollo reports so the token log mirrors actual upstream usage
+	// for cost reconciliation. The actual charge is settled against settleModelRatio
+	// (below) — NOT the admin-configured "display" ModelRatio.
 	creditTokenScale = 100.0
 
-	// settleModelRatio is the ratio Pollo billing actually settles against, intentionally
-	// DECOUPLED from the per-model "display" ModelRatio configured in the admin panel:
+	// upstreamCreditDiscount is the volume discount Pollo applies to OUR account when it
+	// computes credits: the `credit` field returned by /validate and /status is already
+	// DISCOUNTED to 0.9× of the list (original) credit, while the per-credit price stays
+	// $0.06 (confirmed with upstream, 2026-06). Billing must un-discount it back to the
+	// list credit before charging, so the supplier discount becomes OUR margin instead of
+	// being leaked to the end user:
+	//   listCredit = returnedCredit / upstreamCreditDiscount
+	upstreamCreditDiscount = 0.9
+
+	// settleModelRatio is the per-LIST-credit price Pollo billing settles against,
+	// intentionally DECOUPLED from the per-model "display" ModelRatio configured in the
+	// admin panel:
 	//
 	//   model-square price (shown to users) = displayModelRatio * 2          ($/M)
-	//   actual charge                        = round(credit*creditTokenScale) * settleModelRatio * groupRatio
-	//                                        = credit * (creditTokenScale*settleModelRatio) * groupRatio
-	//                                        = credit * 36000 * groupRatio
-	//                                        => $0.072 / credit   (36000 / QuotaPerUnit, QuotaPerUnit=500000)
+	//   actual charge = round(credit*creditTokenScale) * settleModelRatio / upstreamCreditDiscount * groupRatio
+	//                 = credit * (creditTokenScale*settleModelRatio/upstreamCreditDiscount) * groupRatio
+	//                 = credit * 33333 * groupRatio
+	//                 => $0.0667 / returned-credit   (per LIST credit: $0.06)
 	//
 	// This lets the model square show dreamina-aligned prices — seedance-2-0 at 7.7$/M
 	// (display ModelRatio 3.85) and seedance-2-0-fast at 5.6$/M (display ModelRatio 2.8) —
 	// while the per-credit charge stays a single rate for BOTH models, regardless of the
 	// display ratio.
 	//
-	// 价位标定（2026-06）：之前 $0.06/credit（settleModelRatio 300）使 Pollo 渠道实扣
-	// 系统性低于火山直连（dreamina/doubao）的 token×ModelRatio 计费——无视频档位仅为
-	// 其 79%~87%。先放大 ×1.20 → 360（$0.072/credit）使两条上游 ±5% 对齐。
-	//
-	// 标定（2026-06，更新为 325）：业务要求 Pollo 在所有无视频规格上恒 ≤ 火山直连（最差
-	// 相等）。基于 60 次实测（15 组参数 × 4 模型，scripts/.batch60_final.json）逐档火山/Pollo
-	// 比值：fast 480p 0.92~0.97、fast 720p 0.95~0.96、2.0 1080p 0.97（这些档 Pollo 当前更贵，
-	// 违反目标）；2.0 720p 1.05、2.0 480p 2.1（已更便宜）。约束瓶颈为 fast 480p（V/P=0.921）。
-	// 因 Pollo 价格与本系数线性等比、且两模型共用单标量，须 settleModelRatio ≤ 360×0.921=331.6。
-	// 取 325（≈ -9.7%，$0.065/credit）留 ~2% 安全余量 → 最差档 Pollo 仍比火山便宜约 2%，
-	// 其余档更便宜。代价：2.0 档被连带多打折（如 2.0 1080p 由 0.97 变约 0.90）。
+	// 定价（2026-06）：settleModelRatio = 300 表示每「列表（折前）credit」售 $0.06，即
+	// 直接按 Pollo 列表价向用户计价；上游对我们的 9 折（upstreamCreditDiscount）由
+	// /0.9 还原后转为我们约 10% 的毛利（成本 $0.06/credit），不再泄漏给终端用户。
+	// 此方案不追求与火山直连（dreamina/doubao）±5% 对齐：按 scripts/.batch60_final.json
+	// 实测，$0.06/列表credit 下 Pollo 仍比火山便宜约 3~12%（视档位），这是有意为之。
 	//
 	// IMPORTANT: because of this decoupling, changing a model's admin ModelRatio only
 	// moves its displayed price, never the charge. To actually re-price Pollo, change
-	// settleModelRatio here (325 == $0.065/credit; e.g. -30% from 360 => 252).
-	settleModelRatio = 325.0
+	// settleModelRatio here (300 == $0.06/list-credit => $0.0667/returned-credit).
+	settleModelRatio = 300.0
 
 	// otherRatioKey labels the pre-charge multiplier injected by EstimateBilling.
 	otherRatioKey = "pollo_credit"
@@ -578,7 +584,8 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 
 // AdjustBillingOnComplete returns the authoritative final quota for a completed task,
 // computed from the real Pollo credit (carried in taskResult.TotalTokens = round(credit*scale))
-// and the fixed settleModelRatio: quota = round(credit*scale) * settleModelRatio * groupRatio.
+// and the fixed settleModelRatio, un-discounting the returned credit to the list credit:
+//   quota = round(credit*scale) * settleModelRatio / upstreamCreditDiscount * groupRatio.
 // It deliberately uses settleModelRatio, NOT the snapshot's display ModelRatio, so the
 // charge stays decoupled from the model-square price (see settleModelRatio doc).
 //
@@ -602,12 +609,14 @@ func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *rela
 	if groupRatio < 0 {
 		return 0
 	}
-	return int(math.Round(float64(taskResult.TotalTokens) * settleModelRatio * groupRatio))
+	// /upstreamCreditDiscount un-discounts the returned credit back to the list credit
+	// (TotalTokens carries the real discounted credit) before applying the per-list-credit rate.
+	return int(math.Round(float64(taskResult.TotalTokens) * settleModelRatio / upstreamCreditDiscount * groupRatio))
 }
 
 // creditToOtherRatio turns an absolute credit charge into the multiplier the framework
 // applies to the (ratio-mode) base quota, so the pre-charge equals the eventual token
-// settlement: round(credit*scale) * settleModelRatio * groupRatio. Uses settleModelRatio
+// settlement: round(credit*scale) * settleModelRatio / upstreamCreditDiscount * groupRatio. Uses settleModelRatio
 // (not pd.ModelRatio) so the pre-charge matches the decoupled final charge. Derived from
 // the live base quota (not the /2 constant) so it stays correct if the framework changes.
 func creditToOtherRatio(credit float64, pd types.PriceData) float64 {
@@ -615,7 +624,9 @@ func creditToOtherRatio(credit float64, pd types.PriceData) float64 {
 	if base <= 0 {
 		return 0
 	}
-	desired := credit * creditTokenScale * settleModelRatio * pd.GroupRatioInfo.GroupRatio
+	// /upstreamCreditDiscount un-discounts the returned credit to the list credit so the
+	// pre-charge matches the final settlement (AdjustBillingOnComplete uses the same factor).
+	desired := credit * creditTokenScale * settleModelRatio / upstreamCreditDiscount * pd.GroupRatioInfo.GroupRatio
 	return desired / base
 }
 

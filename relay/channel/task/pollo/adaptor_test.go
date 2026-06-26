@@ -84,29 +84,31 @@ func TestParseTaskResult_Success(t *testing.T) {
 func TestCreditToOtherRatio_MatchesSettlement(t *testing.T) {
 	const (
 		quotaPerUnit = 500000.0
-		modelRatio   = 360.0 // $0.072/credit: 0.072 * 500000 / 100 (mirrors package settleModelRatio)
+		displayRatio = 360.0 // arbitrary admin "display" ratio; sets base quota, NOT the charge
 		groupRatio   = 1.0
 		credit       = 15.0
 	)
-	// ratio-mode base quota = modelRatio / preConsumeRatioDivisor * QuotaPerUnit * groupRatio
+	// ratio-mode base quota = displayRatio / preConsumeRatioDivisor * QuotaPerUnit * groupRatio
 	// 其中除数 2 = 1e6/QuotaPerUnit（见 relay/helper/price.go preConsumeRatioDivisor）。
-	base := int(modelRatio / 2 * quotaPerUnit * groupRatio)
+	base := int(displayRatio / 2 * quotaPerUnit * groupRatio)
 	pd := types.PriceData{
 		Quota:          base,
-		ModelRatio:     modelRatio,
+		ModelRatio:     displayRatio,
 		GroupRatioInfo: types.GroupRatioInfo{GroupRatio: groupRatio},
 	}
 
 	ratio := creditToOtherRatio(credit, pd)
 	preCharge := float64(base) * ratio
-	settlement := math.Ceil(credit*creditTokenScale) * modelRatio * groupRatio
+	// settlement un-discounts the returned credit (/upstreamCreditDiscount) then applies
+	// the per-list-credit settleModelRatio — mirrors AdjustBillingOnComplete.
+	settlement := math.Round(credit*creditTokenScale) * settleModelRatio / upstreamCreditDiscount * groupRatio
 
 	if math.Abs(preCharge-settlement) > 1 {
 		t.Fatalf("preCharge=%.0f settlement=%.0f (ratio=%g)", preCharge, settlement, ratio)
 	}
-	// sanity: 15 credit * $0.072 = $1.08 = 540000 quota
-	if math.Abs(settlement-540000) > 1 {
-		t.Fatalf("settlement=%.0f, want 540000 ($1.08)", settlement)
+	// sanity: 15 credit @ $0.0667/returned-credit ($0.06/list-credit) = $1.00 = 500000 quota
+	if math.Abs(settlement-500000) > 1 {
+		t.Fatalf("settlement=%.0f, want 500000 ($1.00)", settlement)
 	}
 }
 
@@ -120,10 +122,10 @@ func TestAdjustBillingOnComplete(t *testing.T) {
 		ModelRatio: 300, GroupRatio: 1,
 		OtherRatios: map[string]float64{"pollo_credit": 0.00176}, // must be ignored here
 	}
-	// TotalTokens = round(4.4*100) = 440  ->  440*settleModelRatio(360)*1 = 158400
+	// TotalTokens = round(4.4*100) = 440 -> 440 * settleModelRatio(300) / upstreamCreditDiscount(0.9) * 1 = 146667
 	got := a.AdjustBillingOnComplete(task, &relaycommon.TaskInfo{TotalTokens: 440})
-	if got != 158400 {
-		t.Fatalf("AdjustBillingOnComplete = %d, want 158400 (no OtherRatios applied)", got)
+	if got != 146667 {
+		t.Fatalf("AdjustBillingOnComplete = %d, want 146667 (no OtherRatios applied)", got)
 	}
 	// matches the precharge formula (TestCreditToOtherRatio_MatchesSettlement) -> delta 0
 
@@ -149,19 +151,19 @@ func TestAdjustBillingOnComplete(t *testing.T) {
 
 // The charge settles against the fixed settleModelRatio, NOT the admin "display" ModelRatio.
 // A model shown at 7.7$/M (display ratio 3.85) or 5.6$/M (2.8) must still settle at the
-// fixed $0.072/credit, i.e. round(credit*scale)*settleModelRatio*groupRatio — unchanged
-// no matter what display ratio the snapshot carries.
+// fixed $0.0667/returned-credit, i.e. round(credit*scale)*settleModelRatio/upstreamCreditDiscount*groupRatio
+// — unchanged no matter what display ratio the snapshot carries.
 func TestAdjustBillingOnComplete_DecoupledFromDisplayRatio(t *testing.T) {
 	a := &TaskAdaptor{}
-	// 4.4 credit -> TotalTokens 440 -> 440 * settleModelRatio(360) * 1 = 158400 quota = $0.3168
+	// 4.4 credit -> TotalTokens 440 -> 440 * settleModelRatio(300) / upstreamCreditDiscount(0.9) * 1 = 146667 quota = $0.2933
 	for _, displayRatio := range []float64{3.85, 2.8, 1, 0.5, 999} {
 		task := &model.Task{}
 		task.PrivateData.BillingContext = &model.TaskBillingContext{
 			ModelRatio: displayRatio, GroupRatio: 1,
 		}
 		got := a.AdjustBillingOnComplete(task, &relaycommon.TaskInfo{TotalTokens: 440})
-		if got != 158400 {
-			t.Fatalf("displayRatio=%g: charge=%d, want 158400 (settle must use settleModelRatio, not display ratio)", displayRatio, got)
+		if got != 146667 {
+			t.Fatalf("displayRatio=%g: charge=%d, want 146667 (settle must use settleModelRatio, not display ratio)", displayRatio, got)
 		}
 	}
 }
