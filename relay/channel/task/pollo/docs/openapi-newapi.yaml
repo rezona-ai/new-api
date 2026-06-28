@@ -132,7 +132,7 @@ components:
       properties:
         model:
           type: string
-          description: 模型名；Doubao 渠道用 doubao-seedance-*，Pollo 渠道用 seedance-2-0 / seedance-2-0-fast（可经渠道模型映射互通）
+          description: 模型名；Doubao 渠道用 doubao-seedance-*，Pollo 渠道用 seedance-2-0 / seedance-2-0-fast / seedance-2-0-mini（可经渠道模型映射互通）
           example: seedance-2-0
         prompt:
           type: string

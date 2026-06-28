@@ -121,6 +121,7 @@ const refEndpointSuffix = "/ref2video"
 var modelBasePaths = map[string]string{
 	"seedance-2-0":      "bytedance/seedance-2-0",
 	"seedance-2-0-fast": "bytedance/seedance-2-0-fast",
+	"seedance-2-0-mini": "bytedance/seedance-2-0-mini",
 }
 
 // resolveBasePath picks the Pollo base path for a request, preferring the mapped
