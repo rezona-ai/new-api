@@ -1,10 +1,12 @@
 package common
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 )
 
@@ -23,6 +25,11 @@ var verificationMap map[string]verificationValue
 var verificationMapMaxSize = 10
 var VerificationValidMinutes = 10
 
+// redisVerificationKey 把 purpose+key 映射到带前缀的 Redis key，避免与其他缓存撞键。
+func redisVerificationKey(key string, purpose string) string {
+	return "verification:" + purpose + key
+}
+
 func GenerateVerificationCode(length int) string {
 	code := uuid.New().String()
 	code = strings.Replace(code, "-", "", -1)
@@ -33,6 +40,14 @@ func GenerateVerificationCode(length int) string {
 }
 
 func RegisterVerificationCodeWithKey(key string, code string, purpose string) {
+	// 启用 Redis 时存 Redis，保证多实例 / 多副本部署下发码与校验共享存储。
+	if RedisEnabled {
+		err := RedisSet(redisVerificationKey(key, purpose), code, time.Duration(VerificationValidMinutes)*time.Minute)
+		if err != nil {
+			SysError("failed to store verification code in Redis: " + err.Error())
+		}
+		return
+	}
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()
 	verificationMap[purpose+key] = verificationValue{
@@ -45,6 +60,17 @@ func RegisterVerificationCodeWithKey(key string, code string, purpose string) {
 }
 
 func VerifyCodeWithKey(key string, code string, purpose string) bool {
+	if RedisEnabled {
+		stored, err := RedisGet(redisVerificationKey(key, purpose))
+		if err != nil {
+			// redis.Nil 表示不存在或已过期；其他错误记日志，统一视为校验失败。
+			if !errors.Is(err, redis.Nil) {
+				SysError("failed to read verification code from Redis: " + err.Error())
+			}
+			return false
+		}
+		return code == stored
+	}
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()
 	value, okay := verificationMap[purpose+key]
@@ -56,6 +82,12 @@ func VerifyCodeWithKey(key string, code string, purpose string) bool {
 }
 
 func DeleteKey(key string, purpose string) {
+	if RedisEnabled {
+		if err := RedisDel(redisVerificationKey(key, purpose)); err != nil {
+			SysError("failed to delete verification code from Redis: " + err.Error())
+		}
+		return
+	}
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()
 	delete(verificationMap, purpose+key)
