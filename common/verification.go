@@ -1,6 +1,7 @@
 package common
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"sync"
@@ -42,7 +43,13 @@ func GenerateVerificationCode(length int) string {
 func RegisterVerificationCodeWithKey(key string, code string, purpose string) {
 	// 启用 Redis 时存 Redis，保证多实例 / 多副本部署下发码与校验共享存储。
 	if RedisEnabled {
-		err := RedisSet(redisVerificationKey(key, purpose), code, time.Duration(VerificationValidMinutes)*time.Minute)
+		// 不走 common.RedisSet：它在 DebugEnabled 时会打印 value=%s，会把验证码 / 找回密码 token 明文写进日志。
+		// 这里直连 RDB.Set，并只在 Debug 时打印 key（不含 code），避免泄露。
+		redisKey := redisVerificationKey(key, purpose)
+		if DebugEnabled {
+			SysLog("Redis SET verification key: " + redisKey)
+		}
+		err := RDB.Set(context.Background(), redisKey, code, time.Duration(VerificationValidMinutes)*time.Minute).Err()
 		if err != nil {
 			SysError("failed to store verification code in Redis: " + err.Error())
 		}
