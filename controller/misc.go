@@ -285,7 +285,11 @@ func SendEmailVerification(c *gin.Context) {
 		return
 	}
 	code := common.GenerateVerificationCode(6)
-	common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
+	if err := common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose); err != nil {
+		// 存储失败（如 Redis 写入异常）时不发邮件：否则用户会收到一个校验永远查不到的验证码。
+		common.ApiError(c, err)
+		return
+	}
 	subject := fmt.Sprintf("%s Email Verification", common.SystemName)
 	content := fmt.Sprintf("<p>Hello, you are verifying your email address for %s.</p>"+
 		"<p>Your verification code is: <strong>%s</strong></p>"+
@@ -313,7 +317,12 @@ func SendPasswordResetEmail(c *gin.Context) {
 	}
 	if model.IsEmailAlreadyTaken(email) {
 		code := common.GenerateVerificationCode(0)
-		common.RegisterVerificationCodeWithKey(email, code, common.PasswordResetPurpose)
+		if err := common.RegisterVerificationCodeWithKey(email, code, common.PasswordResetPurpose); err != nil {
+			// 存储失败是服务端故障，与邮箱是否存在无关，返回通用错误不泄露邮箱存在性；
+			// 不生成重置链接、不发邮件，避免用户拿到一个校验查不到的 token。
+			common.ApiError(c, err)
+			return
+		}
 		link := fmt.Sprintf("%s/user/reset?email=%s&token=%s", system_setting.ServerAddress, email, code)
 		subject := fmt.Sprintf("%s密码重置", common.SystemName)
 		content := fmt.Sprintf("<p>您好，你正在进行%s密码重置。</p>"+

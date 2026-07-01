@@ -1,10 +1,13 @@
 package common
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 )
 
@@ -23,6 +26,11 @@ var verificationMap map[string]verificationValue
 var verificationMapMaxSize = 10
 var VerificationValidMinutes = 10
 
+// redisVerificationKey 把 purpose+key 映射到带前缀的 Redis key，避免与其他缓存撞键。
+func redisVerificationKey(key string, purpose string) string {
+	return "verification:" + purpose + key
+}
+
 func GenerateVerificationCode(length int) string {
 	code := uuid.New().String()
 	code = strings.Replace(code, "-", "", -1)
@@ -32,7 +40,23 @@ func GenerateVerificationCode(length int) string {
 	return code[:length]
 }
 
-func RegisterVerificationCodeWithKey(key string, code string, purpose string) {
+func RegisterVerificationCodeWithKey(key string, code string, purpose string) error {
+	// 启用 Redis 时存 Redis，保证多实例 / 多副本部署下发码与校验共享存储。
+	if RedisEnabled {
+		// 不走 common.RedisSet：它在 DebugEnabled 时会打印 value=%s，会把验证码 / 找回密码 token 明文写进日志。
+		// 这里直连 RDB.Set，并只在 Debug 时打印 key（不含 code），避免泄露。
+		redisKey := redisVerificationKey(key, purpose)
+		if DebugEnabled {
+			SysLog("Redis SET verification key: " + redisKey)
+		}
+		err := RDB.Set(context.Background(), redisKey, code, time.Duration(VerificationValidMinutes)*time.Minute).Err()
+		if err != nil {
+			// 写失败必须回传给调用方：否则会给用户发出一个 VerifyCodeWithKey 永远查不到的 token。
+			SysError("failed to store verification code in Redis: " + err.Error())
+			return err
+		}
+		return nil
+	}
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()
 	verificationMap[purpose+key] = verificationValue{
@@ -42,9 +66,21 @@ func RegisterVerificationCodeWithKey(key string, code string, purpose string) {
 	if len(verificationMap) > verificationMapMaxSize {
 		removeExpiredPairs()
 	}
+	return nil
 }
 
 func VerifyCodeWithKey(key string, code string, purpose string) bool {
+	if RedisEnabled {
+		stored, err := RedisGet(redisVerificationKey(key, purpose))
+		if err != nil {
+			// redis.Nil 表示不存在或已过期；其他错误记日志，统一视为校验失败。
+			if !errors.Is(err, redis.Nil) {
+				SysError("failed to read verification code from Redis: " + err.Error())
+			}
+			return false
+		}
+		return code == stored
+	}
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()
 	value, okay := verificationMap[purpose+key]
@@ -56,6 +92,12 @@ func VerifyCodeWithKey(key string, code string, purpose string) bool {
 }
 
 func DeleteKey(key string, purpose string) {
+	if RedisEnabled {
+		if err := RedisDel(redisVerificationKey(key, purpose)); err != nil {
+			SysError("failed to delete verification code from Redis: " + err.Error())
+		}
+		return
+	}
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()
 	delete(verificationMap, purpose+key)
