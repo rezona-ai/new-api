@@ -40,7 +40,7 @@ func GenerateVerificationCode(length int) string {
 	return code[:length]
 }
 
-func RegisterVerificationCodeWithKey(key string, code string, purpose string) {
+func RegisterVerificationCodeWithKey(key string, code string, purpose string) error {
 	// 启用 Redis 时存 Redis，保证多实例 / 多副本部署下发码与校验共享存储。
 	if RedisEnabled {
 		// 不走 common.RedisSet：它在 DebugEnabled 时会打印 value=%s，会把验证码 / 找回密码 token 明文写进日志。
@@ -51,9 +51,11 @@ func RegisterVerificationCodeWithKey(key string, code string, purpose string) {
 		}
 		err := RDB.Set(context.Background(), redisKey, code, time.Duration(VerificationValidMinutes)*time.Minute).Err()
 		if err != nil {
+			// 写失败必须回传给调用方：否则会给用户发出一个 VerifyCodeWithKey 永远查不到的 token。
 			SysError("failed to store verification code in Redis: " + err.Error())
+			return err
 		}
-		return
+		return nil
 	}
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()
@@ -64,6 +66,7 @@ func RegisterVerificationCodeWithKey(key string, code string, purpose string) {
 	if len(verificationMap) > verificationMapMaxSize {
 		removeExpiredPairs()
 	}
+	return nil
 }
 
 func VerifyCodeWithKey(key string, code string, purpose string) bool {
