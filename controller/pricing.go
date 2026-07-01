@@ -4,6 +4,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -23,11 +24,16 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 			filtered = append(filtered, item)
 			continue
 		}
+		// 只保留用户可用的分组：新建切片，避免原地修改污染 GetPricing 的缓存
+		visibleGroups := make([]string, 0, len(item.EnableGroup))
 		for _, group := range item.EnableGroup {
 			if _, ok := usableGroup[group]; ok {
-				filtered = append(filtered, item)
-				break
+				visibleGroups = append(visibleGroups, group)
 			}
+		}
+		if len(visibleGroups) > 0 {
+			item.EnableGroup = visibleGroups
+			filtered = append(filtered, item)
 		}
 	}
 	return filtered
@@ -56,6 +62,13 @@ func GetPricing(c *gin.Context) {
 	}
 
 	usableGroup = service.GetUserUsableGroups(group)
+	// 剔除隐藏分组，使模型广场（模型过滤 / group_ratio / usable_group 侧边栏筛选）
+	// 与 /api/user/self/groups 的隐藏行为保持一致
+	for g := range usableGroup {
+		if setting.IsGroupHidden(g) {
+			delete(usableGroup, g)
+		}
+	}
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
 	// check groupRatio contains usableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
