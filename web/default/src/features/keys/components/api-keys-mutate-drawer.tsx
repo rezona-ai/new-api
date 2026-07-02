@@ -300,7 +300,12 @@ export function ApiKeysMutateDrawer({
                 name='group'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Group')}</FormLabel>
+                    <FormLabel>
+                      {t('Group')}
+                      <span className='text-destructive ml-1'>
+                        {t('(Required)')}
+                      </span>
+                    </FormLabel>
                     <FormControl>
                       <ApiKeyGroupCombobox
                         options={groups}
