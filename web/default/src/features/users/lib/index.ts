@@ -22,6 +22,17 @@ For commercial licensing, please contact support@quantumnous.com
 export { getUserActionMessage } from './user-actions'
 
 // ============================================================================
+// Quick Add User
+// ============================================================================
+export {
+  quickAddUser,
+  generateRandomPassword,
+  QUICK_ADD_PASSWORD_LENGTH,
+  QUICK_ADD_QUOTA_DOLLARS,
+  type QuickAddUserResult,
+} from './quick-add-user'
+
+// ============================================================================
 // Form Utilities
 // ============================================================================
 export {
