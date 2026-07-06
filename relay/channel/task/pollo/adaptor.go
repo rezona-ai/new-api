@@ -87,7 +87,7 @@ const (
 	settleModelRatio = 300.0
 
 	// otherRatioKey labels the pre-charge multiplier injected by EstimateBilling.
-	otherRatioKey = "pollo_credit"
+	otherRatioKey = "credit"
 
 	// validateTimeout bounds the /validate round-trip so it never stalls a submit.
 	validateTimeout = 20 * time.Second
@@ -592,8 +592,8 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 //
 // Returning a positive value makes service.settleTaskBillingOnComplete use this exact
 // amount (priority #1) and SKIP the token-recalc fallback. That fallback would otherwise
-// re-multiply the persisted OtherRatios — including the precharge-only "pollo_credit"
-// ratio — and double-count it (charging credit*scale*settleModelRatio*group*pollo_credit).
+// re-multiply the persisted OtherRatios — including the precharge-only "credit"
+// ratio — and double-count it (charging credit*scale*settleModelRatio*group*credit).
 func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int {
 	if task == nil || taskResult == nil || taskResult.TotalTokens <= 0 {
 		return 0
