@@ -30,7 +30,7 @@ func (f *fakeSettleAdaptor) AdjustBillingOnComplete(*model.Task, *relaycommon.Ta
 // TestSettleUsesAdjustAndSkipsOtherRatios locks the invariant the Pollo P1 fix relies on:
 // when an adaptor's AdjustBillingOnComplete returns >0, the settler uses that exact amount
 // (priority #1) and does NOT fall through to the token-recalc path that would re-multiply
-// the persisted OtherRatios (e.g. the precharge-only "pollo_credit" ratio). If this
+// the persisted OtherRatios (e.g. the precharge-only "credit" ratio). If this
 // regresses, Pollo completion billing double-counts again.
 func TestSettleUsesAdjustAndSkipsOtherRatios(t *testing.T) {
 	// Reuse the package-wide in-memory DB from TestMain and clean up rows after the
@@ -61,7 +61,7 @@ func TestSettleUsesAdjustAndSkipsOtherRatios(t *testing.T) {
 	task.PrivateData.BillingContext = &model.TaskBillingContext{
 		ModelRatio: 300, GroupRatio: 1,
 		// precharge-only ratio that MUST NOT be re-applied at settlement
-		OtherRatios:     map[string]float64{"pollo_credit": 0.00176},
+		OtherRatios:     map[string]float64{"credit": 0.00176},
 		OriginModelName: "seedance-2-0-fast",
 		PerCallBilling:  false,
 	}

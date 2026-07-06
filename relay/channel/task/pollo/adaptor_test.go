@@ -120,7 +120,7 @@ func TestAdjustBillingOnComplete(t *testing.T) {
 	task := &model.Task{}
 	task.PrivateData.BillingContext = &model.TaskBillingContext{
 		ModelRatio: 300, GroupRatio: 1,
-		OtherRatios: map[string]float64{"pollo_credit": 0.00176}, // must be ignored here
+		OtherRatios: map[string]float64{"credit": 0.00176}, // must be ignored here
 	}
 	// TotalTokens = round(4.4*100) = 440 -> 440 * settleModelRatio(300) / upstreamCreditDiscount(0.9) * 1 = 146667
 	got := a.AdjustBillingOnComplete(task, &relaycommon.TaskInfo{TotalTokens: 440})
@@ -142,7 +142,7 @@ func TestAdjustBillingOnComplete(t *testing.T) {
 	freeTask := &model.Task{}
 	freeTask.PrivateData.BillingContext = &model.TaskBillingContext{
 		ModelRatio: 300, GroupRatio: 0,
-		OtherRatios: map[string]float64{"pollo_credit": 0.00176},
+		OtherRatios: map[string]float64{"credit": 0.00176},
 	}
 	if v := a.AdjustBillingOnComplete(freeTask, &relaycommon.TaskInfo{TotalTokens: 440}); v != 0 {
 		t.Fatalf("free group (GroupRatio=0) must settle to 0, got %d", v)
