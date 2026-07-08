@@ -23,13 +23,13 @@ import { createUser, searchUsers, adjustUserQuota } from '../api'
 // Quick Add User
 // ============================================================================
 // One-click user creation for admins: generate a random password, create the
-// user with that password (also used as the display name so the admin can read
-// it back from the list), then grant a default quota. The backend CreateUser
+// user with that password (also stored in the remark so the admin can read it
+// back from the list), then grant a default quota. The backend CreateUser
 // endpoint does not return the new id and does not accept a quota on create, so
 // the quota is applied in a second step after resolving the id by username.
 
-// 20 chars: the backend caps password AND display_name at 20 (validate:"max=20"),
-// so the generated password (reused as display name) sits exactly at the limit.
+// 20 chars: the backend caps password at 20 (validate:"max=20"), so the
+// generated password sits exactly at the limit.
 export const QUICK_ADD_PASSWORD_LENGTH = 20
 // Default quota granted to a quick-added user, in USD.
 export const QUICK_ADD_QUOTA_DOLLARS = 10
@@ -65,9 +65,9 @@ export type QuickAddUserResult = {
 }
 
 /**
- * Create a common user in one shot: random 20-char password (also the display
- * name) + default quota. Returns the generated password so the caller can show
- * it to the admin.
+ * Create a common user in one shot: random 20-char password (also stored in
+ * the remark) + default quota. Returns the generated password so the caller
+ * can show it to the admin.
  */
 export async function quickAddUser(
   username: string
@@ -76,8 +76,9 @@ export async function quickAddUser(
 
   const created = await createUser({
     username,
-    display_name: password,
+    display_name: username,
     password,
+    remark: password,
     role: 1, // common user
   })
   if (!created.success) {

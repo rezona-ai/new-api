@@ -105,7 +105,7 @@ export interface UserFormData {
   role?: number // Only used when creating user
   quota?: number // Only used when updating user
   group?: string // Only used when updating user
-  remark?: string // Only used when updating user
+  remark?: string
 }
 
 export type ManageUserAction =
