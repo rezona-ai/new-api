@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -67,12 +68,13 @@ func sendLarkTopupSuccess(ctx context.Context, p LarkTopupSuccess) error {
 		larkField(true, "Channel", p.Channel),
 		larkField(true, "Amount", amount),
 		larkField(true, "Time (Beijing Time)", when),
-		larkField(false, "User", user),
+		larkField(true, "User", user),
 	}
 	// One instance serves one domain, so the deployment's ServerAddress identifies
-	// which site the top-up happened on. Skip the field when it's unconfigured.
-	if domain := system_setting.ServerAddress; domain != "" {
-		fields = append(fields, larkField(false, "Domain", domain))
+	// which site the top-up happened on. Strip the scheme so the card shows a bare
+	// host (e.g. taluna.ai), matching biz-api. Skip the field when unconfigured.
+	if domain := larkHost(system_setting.ServerAddress); domain != "" {
+		fields = append(fields, larkField(true, "Domain", domain))
 	}
 
 	card := map[string]any{
@@ -89,6 +91,14 @@ func sendLarkTopupSuccess(ctx context.Context, p LarkTopupSuccess) error {
 		},
 	}
 	return postLark(ctx, map[string]any{"msg_type": "interactive", "card": card})
+}
+
+// larkHost reduces a configured address to its bare host for display, dropping
+// the http/https scheme and any trailing slash (e.g. "https://taluna.ai/" -> "taluna.ai").
+func larkHost(addr string) string {
+	addr = strings.TrimPrefix(addr, "https://")
+	addr = strings.TrimPrefix(addr, "http://")
+	return strings.TrimSuffix(addr, "/")
 }
 
 func larkField(short bool, label, value string) map[string]any {
