@@ -14,6 +14,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/bytedance/gopkg/util/gopool"
 )
 
@@ -61,6 +62,19 @@ func sendLarkTopupSuccess(ctx context.Context, p LarkTopupSuccess) error {
 	when := p.PaidAt.In(larkBeijing).Format("2006-01-02 15:04:05")
 	user := fmt.Sprintf("%s (ID: %d)", username, p.UserID)
 
+	fields := []any{
+		larkField(true, "Scenario", p.Scenario),
+		larkField(true, "Channel", p.Channel),
+		larkField(true, "Amount", amount),
+		larkField(true, "Time (Beijing Time)", when),
+		larkField(false, "User", user),
+	}
+	// One instance serves one domain, so the deployment's ServerAddress identifies
+	// which site the top-up happened on. Skip the field when it's unconfigured.
+	if domain := system_setting.ServerAddress; domain != "" {
+		fields = append(fields, larkField(false, "Domain", domain))
+	}
+
 	card := map[string]any{
 		"config": map[string]any{"wide_screen_mode": true},
 		"header": map[string]any{
@@ -69,14 +83,8 @@ func sendLarkTopupSuccess(ctx context.Context, p LarkTopupSuccess) error {
 		},
 		"elements": []any{
 			map[string]any{
-				"tag": "div",
-				"fields": []any{
-					larkField(true, "Scenario", p.Scenario),
-					larkField(true, "Channel", p.Channel),
-					larkField(true, "Amount", amount),
-					larkField(true, "Time (Beijing Time)", when),
-					larkField(false, "User", user),
-				},
+				"tag":    "div",
+				"fields": fields,
 			},
 		},
 	}
