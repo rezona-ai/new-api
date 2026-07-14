@@ -350,29 +350,11 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 	} else if strings.HasPrefix(c.Request.URL.Path, "/v1/images/edits") {
 		//modelRequest.Model = common.GetStringIfEmpty(c.PostForm("model"), "gpt-image-1")
 		contentType := c.ContentType()
-		// DIAG(feat/wdy/model): 排查 gateway expand 间歇性 "model name empty"。
-		// 记录 content-type / 提取结果，定位后连同本块诊断一并移除。
 		if slices.Contains([]string{gin.MIMEPOSTForm, gin.MIMEMultipartPOSTForm}, contentType) {
 			req, err := getModelFromRequest(c)
-			var diagModel string
-			var diagErr string
-			if err != nil {
-				diagErr = err.Error()
-			}
-			if req != nil {
-				diagModel = req.Model
-			}
-			common.SysError(fmt.Sprintf(
-				"DIAG images/edits model-extract: rawCT=%q ginCT=%q contentLength=%d extractedModel=%q err=%q",
-				c.Request.Header.Get("Content-Type"), contentType, c.Request.ContentLength, diagModel, diagErr))
 			if err == nil && req.Model != "" {
 				modelRequest.Model = req.Model
 			}
-		} else {
-			// 走不进上面分支就一定取不到 model → 一定报 empty。记下来。
-			common.SysError(fmt.Sprintf(
-				"DIAG images/edits model-extract SKIPPED: ginCT=%q not in [form,multipart]; rawCT=%q",
-				contentType, c.Request.Header.Get("Content-Type")))
 		}
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/audio") {
