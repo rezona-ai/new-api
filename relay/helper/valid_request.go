@@ -3,7 +3,11 @@ package helper
 import (
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"mime"
+	"mime/multipart"
+	"net/url"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -15,6 +19,52 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// imageEditFormValueMemory 是解析 image edit 表单标量字段时，multipart 非文件
+// 部分允许占用的内存上限（文件部分不在此读取，仅取 Value）。
+const imageEditFormValueMemory = 8 << 20 // 8 MiB
+
+// parseImageEditFormValues 从可复用请求体解析 multipart 表单的标量字段（Value），
+// 返回 url.Values（语义同 c.Request.PostForm）。它从 body storage 读取完整字节
+// （读前 Seek(0)、读后由 storage 复位），因此不受前置中间件是否已消费 c.Request.Body
+// 影响——这正是修复「PostForm 间歇为空导致 model 丢失」的关键。
+//
+// 只取 Value（标量字段）；文件部分仍由后续 c.MultipartForm() 读取，本函数不干扰
+// 其状态（未触碰 c.Request.MultipartForm，且 storage 读后已复位到 0）。
+func parseImageEditFormValues(c *gin.Context) (url.Values, error) {
+	_, params, err := mime.ParseMediaType(c.Request.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, fmt.Errorf("parse content-type: %w", err)
+	}
+	boundary, ok := params["boundary"]
+	if !ok || boundary == "" {
+		return nil, errors.New("multipart boundary not found")
+	}
+
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := storage.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	// 读后复位到开头，保证后续 c.MultipartForm() 能从头再解析文件部分。
+	defer func() { _, _ = storage.Seek(0, io.SeekStart) }()
+
+	form, err := multipart.NewReader(storage, boundary).ReadForm(imageEditFormValueMemory)
+	if err != nil {
+		return nil, fmt.Errorf("read multipart form: %w", err)
+	}
+	defer form.RemoveAll()
+
+	values := url.Values{}
+	for k, vs := range form.Value {
+		for _, v := range vs {
+			values.Add(k, v)
+		}
+	}
+	return values, nil
+}
 
 func GetAndValidateRequest(c *gin.Context, format types.RelayFormat) (request dto.Request, err error) {
 	relayMode := relayconstant.Path2RelayMode(c.Request.URL.Path)
@@ -144,18 +194,29 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 	switch relayMode {
 	case relayconstant.RelayModeImagesEdits:
 		if strings.Contains(c.Request.Header.Get("Content-Type"), "multipart/form-data") {
-			_, err := c.MultipartForm()
+			// 表单标量字段（model/prompt/size/...）通过可复用请求体解析
+			// （UnmarshalBodyReusable：读前后都 Seek(0)，与 distributor 选渠道时
+			// 用的是同一套机制）。此前直接读 c.Request.PostForm 依赖 gin
+			// c.MultipartForm() 对 c.Request.Body 的一次性解析；当请求体已被前置
+			// 中间件（如 distributor 选渠道）消费/替换后，PostForm 可能间歇为空，
+			// 导致 model 丢失、被当作空 model 发往上游 → 上游 400 "model empty"。
+			formVals, err := parseImageEditFormValues(c)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse image edit form request: %w", err)
 			}
-			formData := c.Request.PostForm
-			imageRequest.Prompt = formData.Get("prompt")
-			imageRequest.Model = formData.Get("model")
-			imageRequest.N = common.GetPointer(uint(common.String2Int(formData.Get("n"))))
-			imageRequest.Quality = formData.Get("quality")
-			imageRequest.Size = formData.Get("size")
-			if imageValue := formData.Get("image"); imageValue != "" {
+			imageRequest.Prompt = formVals.Get("prompt")
+			imageRequest.Model = formVals.Get("model")
+			imageRequest.N = common.GetPointer(uint(common.String2Int(formVals.Get("n"))))
+			imageRequest.Quality = formVals.Get("quality")
+			imageRequest.Size = formVals.Get("size")
+			if imageValue := formVals.Get("image"); imageValue != "" {
 				imageRequest.Image, _ = common.Marshal(imageValue)
+			}
+
+			// model 必填：缺失则在本地 fail-fast（毫秒级、错误明确），而不是把空
+			// model 发到上游、等上游返回模糊的 400。
+			if imageRequest.Model == "" {
+				return nil, errors.New("model is required")
 			}
 
 			if imageRequest.Model == "gpt-image-1" {
@@ -167,9 +228,8 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 				imageRequest.N = common.GetPointer(uint(1))
 			}
 
-			hasWatermark := formData.Has("watermark")
-			if hasWatermark {
-				watermark := formData.Get("watermark") == "true"
+			if formVals.Has("watermark") {
+				watermark := formVals.Get("watermark") == "true"
 				imageRequest.Watermark = &watermark
 			}
 			break
