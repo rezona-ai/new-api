@@ -310,7 +310,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 			if info.OriginModelName != "" {
 				msgModel = info.OriginModelName
 			}
-			msgID = common.EncodeAnthropicMessageIDStyle(openAIResponse.Id, model_setting.GetClaudeSettings().NormalizedMessageIDStyle())
+			msgID = common.EncodeAnthropicMessageID(openAIResponse.Id)
 		}
 		msg := &dto.ClaudeMediaMessage{
 			Id:    msgID,
@@ -637,7 +637,7 @@ func ResponseOpenAI2Claude(openAIResponse *dto.OpenAITextResponse, info *relayco
 	var stopReason string
 	contents := make([]dto.ClaudeMediaMessage, 0)
 	// Mirror the streaming normalization (R2.1/R2.2) for the non-stream path:
-	// client-requested model name + deterministic style-selected message id, with fallback to
+	// client-requested model name + deterministic "msg_" id, with fallback to
 	// the raw upstream values when normalization is disabled.
 	respModel := openAIResponse.Model
 	respID := openAIResponse.Id
@@ -645,7 +645,7 @@ func ResponseOpenAI2Claude(openAIResponse *dto.OpenAITextResponse, info *relayco
 		if info.OriginModelName != "" {
 			respModel = info.OriginModelName
 		}
-		respID = common.EncodeAnthropicMessageIDStyle(openAIResponse.Id, model_setting.GetClaudeSettings().NormalizedMessageIDStyle())
+		respID = common.EncodeAnthropicMessageID(openAIResponse.Id)
 	}
 	claudeResponse := &dto.ClaudeResponse{
 		Id:    respID,

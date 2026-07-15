@@ -722,7 +722,7 @@ func patchClaudeMessageStartIdentity(data string, info *relaycommon.RelayInfo) s
 	}
 
 	if upstreamID := gjson.Get(data, "message.id"); upstreamID.Exists() {
-		if patched, err := sjson.Set(data, "message.id", common.EncodeAnthropicMessageIDStyle(upstreamID.String(), model_setting.GetClaudeSettings().NormalizedMessageIDStyle())); err == nil {
+		if patched, err := sjson.Set(data, "message.id", common.EncodeAnthropicMessageID(upstreamID.String())); err == nil {
 			data = patched
 		}
 	}
@@ -749,7 +749,7 @@ func patchClaudeTopLevelIdentity(data []byte, info *relaycommon.RelayInfo) []byt
 	}
 
 	if upstreamID := gjson.Get(s, "id"); upstreamID.Exists() {
-		if patched, err := sjson.Set(s, "id", common.EncodeAnthropicMessageIDStyle(upstreamID.String(), model_setting.GetClaudeSettings().NormalizedMessageIDStyle())); err == nil {
+		if patched, err := sjson.Set(s, "id", common.EncodeAnthropicMessageID(upstreamID.String())); err == nil {
 			s = patched
 		}
 	}
