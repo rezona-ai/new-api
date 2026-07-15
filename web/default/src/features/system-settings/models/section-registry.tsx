@@ -108,7 +108,6 @@ const MODELS_SECTIONS = [
             input_token_calibration:
               settings['claude.input_token_calibration'],
             sse_padding_enabled: settings['claude.sse_padding_enabled'],
-            message_id_style: settings['claude.message_id_style'] || 'anthropic',
           },
         }}
       />

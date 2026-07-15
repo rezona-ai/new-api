@@ -32,14 +32,6 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -84,7 +76,6 @@ const schema = z.object({
       .max(1, { message: 'Must be 1 or less' }),
     response_normalize_enabled: z.boolean(),
     sse_padding_enabled: z.boolean(),
-    message_id_style: z.enum(['anthropic', 'bedrock']),
     recalc_input_tokens_channels: z.string().superRefine((value, ctx) => {
       const result = validateJsonString(value)
       if (!result.valid) {
@@ -116,7 +107,6 @@ type FlatClaudeSettings = {
   'claude.thinking_adapter_budget_tokens_percentage': number
   'claude.response_normalize_enabled': boolean
   'claude.sse_padding_enabled': boolean
-  'claude.message_id_style': string
   'claude.recalc_input_tokens_channels': string
   'claude.input_token_calibration': string
 }
@@ -143,8 +133,6 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
     'claude.response_normalize_enabled':
       defaultValues.claude.response_normalize_enabled,
     'claude.sse_padding_enabled': defaultValues.claude.sse_padding_enabled,
-    'claude.message_id_style':
-      defaultValues.claude.message_id_style || 'anthropic',
     'claude.recalc_input_tokens_channels': normalizeJsonString(
       defaultValues.claude.recalc_input_tokens_channels
     ),
@@ -168,7 +156,6 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
         values.claude.thinking_adapter_budget_tokens_percentage,
       response_normalize_enabled: values.claude.response_normalize_enabled,
       sse_padding_enabled: values.claude.sse_padding_enabled,
-      message_id_style: values.claude.message_id_style || 'anthropic',
       recalc_input_tokens_channels: formatJsonForTextarea(
         values.claude.recalc_input_tokens_channels
       ),
@@ -203,8 +190,6 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
       'claude.response_normalize_enabled':
         defaultValues.claude.response_normalize_enabled,
       'claude.sse_padding_enabled': defaultValues.claude.sse_padding_enabled,
-      'claude.message_id_style':
-        defaultValues.claude.message_id_style || 'anthropic',
       'claude.recalc_input_tokens_channels': normalizeJsonString(
         defaultValues.claude.recalc_input_tokens_channels
       ),
@@ -230,7 +215,6 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
       'claude.response_normalize_enabled':
         values.claude.response_normalize_enabled,
       'claude.sse_padding_enabled': values.claude.sse_padding_enabled,
-      'claude.message_id_style': values.claude.message_id_style,
       'claude.recalc_input_tokens_channels': normalizeJsonString(
         values.claude.recalc_input_tokens_channels
       ),
@@ -383,52 +367,6 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
                     />
                   </FormControl>
                 </SettingsSwitchItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='claude.message_id_style'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Message ID Style')}</FormLabel>
-                  <Select
-                    items={[
-                      {
-                        value: 'anthropic',
-                        label: t('Anthropic (msg_01…, length 28)'),
-                      },
-                      {
-                        value: 'bedrock',
-                        label: t('Bedrock (msg_bdrk_…, length 59)'),
-                      },
-                    ]}
-                    onValueChange={field.onChange}
-                    value={field.value || 'anthropic'}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent alignItemWithTrigger={false}>
-                      <SelectGroup>
-                        <SelectItem value='anthropic'>
-                          {t('Anthropic (msg_01…, length 28)')}
-                        </SelectItem>
-                        <SelectItem value='bedrock'>
-                          {t('Bedrock (msg_bdrk_…, length 59)')}
-                        </SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    {t(
-                      'Client-facing Claude message.id profile when response normalization is on. Anthropic is the official shape; Bedrock uses the AWS Bedrock prefix and longer lowercase suffix. Applies to both passthrough and conversion paths.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
               )}
             />
 
