@@ -157,6 +157,7 @@ export type ModelSettings = {
   'claude.recalc_input_tokens_channels': string
   'claude.input_token_calibration': string
   'claude.sse_padding_enabled': boolean
+  'claude.message_id_style': string
   'grok.violation_deduction_enabled': boolean
   'grok.violation_deduction_amount': number
   ModelPrice: string

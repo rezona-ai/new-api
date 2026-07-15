@@ -7,7 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/config"
 )
 
-//var claudeHeadersSettings = map[string][]string{}
+//var claudeHeadersSettings = map[string]map[string][]string{}
 //
 //var ClaudeThinkingAdapterEnabled = true
 //var ClaudeThinkingAdapterMaxTokens = 8192
@@ -43,6 +43,13 @@ type ClaudeSettings struct {
 	// (token length side-channel defense, R3). Independent of
 	// ResponseNormalizeEnabled. Default true.
 	SsePaddingEnabled bool `json:"sse_padding_enabled"`
+
+	// MessageIDStyle selects the client-facing Claude message.id profile used
+	// when ResponseNormalizeEnabled rewrites ids. Empty / "anthropic" →
+	// msg_01 + base59×22 (len 28); "bedrock" → msg_bdrk_ + base36lower×50
+	// (len 59). Unknown values fall back to anthropic. DB-persisted via
+	// GlobalConfig (not an env var).
+	MessageIDStyle string `json:"message_id_style"`
 }
 
 // defaultInputTokenCalibration is the built-in per-model calibration table used
@@ -70,6 +77,7 @@ var defaultClaudeSettings = ClaudeSettings{
 		"claude-opus-4-8": 1.27,
 	},
 	SsePaddingEnabled: true,
+	MessageIDStyle:    "", // anthropic default (see NormalizedMessageIDStyle)
 }
 
 // 全局实例
@@ -139,6 +147,21 @@ func (c *ClaudeSettings) ShouldRecalcInputTokens(channelId int) bool {
 		}
 	}
 	return false
+}
+
+// NormalizedMessageIDStyle returns the effective message.id style for this
+// settings value. Empty / "anthropic" / unknown → "anthropic"; "bedrock"
+// (any case, surrounding whitespace ok) → "bedrock".
+func (c *ClaudeSettings) NormalizedMessageIDStyle() string {
+	if c == nil {
+		return "anthropic"
+	}
+	switch strings.ToLower(strings.TrimSpace(c.MessageIDStyle)) {
+	case "bedrock":
+		return "bedrock"
+	default:
+		return "anthropic"
+	}
 }
 
 // GetInputTokenCalibrationFactor returns the calibration factor for the given

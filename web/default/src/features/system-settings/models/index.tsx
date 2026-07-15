@@ -46,6 +46,7 @@ const defaultModelSettings: ModelSettings = {
   'claude.input_token_calibration':
     '{"claude-opus-4-6":0.84,"claude-opus-4-7":1.27,"claude-opus-4-8":1.27}',
   'claude.sse_padding_enabled': true,
+  'claude.message_id_style': 'anthropic',
   'grok.violation_deduction_enabled': true,
   'grok.violation_deduction_amount': 0.05,
   ModelPrice: '',

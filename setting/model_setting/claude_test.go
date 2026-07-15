@@ -12,6 +12,9 @@ func TestClaudeSettingsNormalizeDefaults(t *testing.T) {
 	if !defaultClaudeSettings.SsePaddingEnabled {
 		t.Fatalf("SsePaddingEnabled default must be true")
 	}
+	if defaultClaudeSettings.MessageIDStyle != "" {
+		t.Fatalf("MessageIDStyle default must be empty (anthropic), got %q", defaultClaudeSettings.MessageIDStyle)
+	}
 	if len(defaultClaudeSettings.RecalcInputTokensChannels) != 0 {
 		t.Fatalf("RecalcInputTokensChannels default must be empty, got %v", defaultClaudeSettings.RecalcInputTokensChannels)
 	}
@@ -130,3 +133,28 @@ func TestClaudeSettingsWriteHeadersDeduplicatesAcrossCommaSeparatedAndRepeatedVa
 		t.Fatalf("expected deduplicated merged header %q, got %q", expected, got[0])
 	}
 }
+
+func TestClaudeSettingsNormalizedMessageIDStyle(t *testing.T) {
+	var nilSettings *ClaudeSettings
+	if got := nilSettings.NormalizedMessageIDStyle(); got != "anthropic" {
+		t.Fatalf("nil settings = %q, want anthropic", got)
+	}
+	cases := []struct {
+		in, want string
+	}{
+		{"", "anthropic"},
+		{"anthropic", "anthropic"},
+		{"ANTHROPIC", "anthropic"},
+		{"bedrock", "bedrock"},
+		{"BEDROCK", "bedrock"},
+		{"  bedrock  ", "bedrock"},
+		{"unknown", "anthropic"},
+	}
+	for _, tc := range cases {
+		s := &ClaudeSettings{MessageIDStyle: tc.in}
+		if got := s.NormalizedMessageIDStyle(); got != tc.want {
+			t.Fatalf("MessageIDStyle=%q → %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
