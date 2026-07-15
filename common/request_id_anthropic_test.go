@@ -97,3 +97,71 @@ func TestEncodeAnthropicRequestIDHandlesZeroTimestamp(t *testing.T) {
 		t.Fatalf("zero timestamp should still produce a well-formed id, got %q", id)
 	}
 }
+
+func TestEncodeAnthropicMessageIDStyleBedrockFormat(t *testing.T) {
+	id := EncodeAnthropicMessageIDStyle("gen-1781245943-9Q4Nyw8yXglc3sttYIim", MessageIDStyleBedrock)
+
+	if !strings.HasPrefix(id, "msg_bdrk_") {
+		t.Fatalf("expected msg_bdrk_ prefix, got %q", id)
+	}
+	if len(id) != len("msg_bdrk_")+bedrockMsgIDWidth {
+		t.Fatalf("expected total length %d, got %d (%q)", len("msg_bdrk_")+bedrockMsgIDWidth, len(id), id)
+	}
+	suffix := strings.TrimPrefix(id, "msg_bdrk_")
+	for _, r := range suffix {
+		if !strings.ContainsRune(bedrockMsgIDAlphabet, r) {
+			t.Fatalf("char %q in %q is not in the base36 lowercase alphabet", string(r), suffix)
+		}
+		if r >= 'A' && r <= 'Z' {
+			t.Fatalf("uppercase %q must not appear in bedrock suffix %q", string(r), suffix)
+		}
+	}
+}
+
+func TestEncodeAnthropicMessageIDStyleBedrockDeterministic(t *testing.T) {
+	a := EncodeAnthropicMessageIDStyle("gen-1", MessageIDStyleBedrock)
+	b := EncodeAnthropicMessageIDStyle("gen-1", MessageIDStyleBedrock)
+	if a != b {
+		t.Fatalf("expected deterministic output, got %q and %q", a, b)
+	}
+	if EncodeAnthropicMessageIDStyle("gen-1", MessageIDStyleBedrock) == EncodeAnthropicMessageIDStyle("gen-2", MessageIDStyleBedrock) {
+		t.Fatalf("different upstream ids must not collide")
+	}
+}
+
+func TestEncodeAnthropicMessageIDStyleFallbackAndCase(t *testing.T) {
+	upstream := "gen-fallback-1"
+	wantAnthropic := EncodeAnthropicMessageID(upstream)
+	for _, style := range []string{"", "anthropic", "ANTHROPIC", " unknown ", "bedrock-typo"} {
+		got := EncodeAnthropicMessageIDStyle(upstream, style)
+		if got != wantAnthropic {
+			t.Fatalf("style %q: got %q, want anthropic default %q", style, got, wantAnthropic)
+		}
+	}
+	// case / whitespace for bedrock
+	a := EncodeAnthropicMessageIDStyle(upstream, "BEDROCK")
+	b := EncodeAnthropicMessageIDStyle(upstream, "  bedrock  ")
+	c := EncodeAnthropicMessageIDStyle(upstream, MessageIDStyleBedrock)
+	if a != c || b != c {
+		t.Fatalf("bedrock case/whitespace normalize failed: %q %q %q", a, b, c)
+	}
+	if !strings.HasPrefix(a, "msg_bdrk_") {
+		t.Fatalf("bedrock style should produce msg_bdrk_ prefix, got %q", a)
+	}
+}
+
+func TestNormalizeMessageIDStyle(t *testing.T) {
+	cases := map[string]string{
+		"":         MessageIDStyleAnthropic,
+		"anthropic": MessageIDStyleAnthropic,
+		"Bedrock":  MessageIDStyleBedrock,
+		" bedrock ": MessageIDStyleBedrock,
+		"other":    MessageIDStyleAnthropic,
+	}
+	for in, want := range cases {
+		if got := NormalizeMessageIDStyle(in); got != want {
+			t.Fatalf("NormalizeMessageIDStyle(%q)=%q, want %q", in, got, want)
+		}
+	}
+}
+

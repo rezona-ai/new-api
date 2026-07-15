@@ -19,6 +19,14 @@ func withNormalize(t *testing.T, enabled bool) {
 	t.Cleanup(func() { settings.ResponseNormalizeEnabled = orig })
 }
 
+func withMessageIDStyle(t *testing.T, style string) {
+	t.Helper()
+	settings := model_setting.GetClaudeSettings()
+	orig := settings.MessageIDStyle
+	settings.MessageIDStyle = style
+	t.Cleanup(func() { settings.MessageIDStyle = orig })
+}
+
 func TestPatchClaudeMessageStartIdentity_NormalizesModelAndID(t *testing.T) {
 	withNormalize(t, true)
 
@@ -79,3 +87,36 @@ func TestPatchClaudeTopLevelIdentity_NormalizeDisabled(t *testing.T) {
 	out := patchClaudeTopLevelIdentity(data, &relaycommon.RelayInfo{OriginModelName: "claude-opus-4-6"})
 	assert.Equal(t, string(data), string(out))
 }
+
+func TestPatchClaudeMessageStartIdentity_BedrockStyle(t *testing.T) {
+	withNormalize(t, true)
+	withMessageIDStyle(t, "bedrock")
+
+	upstreamID := "gen-1781245943-9Q4Nyw8yXglc3sttYIim"
+	data := `{"type":"message_start","message":{"id":"` + upstreamID +
+		`","model":"anthropic/claude-4.6-opus-20260205","role":"assistant","usage":{"input_tokens":0,"output_tokens":1}}}`
+	info := &relaycommon.RelayInfo{OriginModelName: "claude-opus-4-8"}
+
+	out := patchClaudeMessageStartIdentity(data, info)
+	gotID := gjson.Get(out, "message.id").String()
+	assert.True(t, strings.HasPrefix(gotID, "msg_bdrk_"), "id should be bedrock form, got %q", gotID)
+	assert.Equal(t, len("msg_bdrk_")+50, len(gotID))
+	assert.Equal(t, common.EncodeAnthropicMessageIDStyle(upstreamID, "bedrock"), gotID)
+	assert.Equal(t, "claude-opus-4-8", gjson.Get(out, "message.model").String())
+}
+
+func TestPatchClaudeTopLevelIdentity_BedrockStyle(t *testing.T) {
+	withNormalize(t, true)
+	withMessageIDStyle(t, "bedrock")
+
+	upstreamID := "gen-1781245943-abc"
+	data := []byte(`{"id":"` + upstreamID + `","type":"message","model":"anthropic/claude-4.6-opus-20260205","role":"assistant","content":[]}`)
+	info := &relaycommon.RelayInfo{OriginModelName: "claude-opus-4-8"}
+
+	out := string(patchClaudeTopLevelIdentity(data, info))
+	gotID := gjson.Get(out, "id").String()
+	assert.True(t, strings.HasPrefix(gotID, "msg_bdrk_"))
+	assert.Equal(t, len("msg_bdrk_")+50, len(gotID))
+	assert.Equal(t, common.EncodeAnthropicMessageIDStyle(upstreamID, "bedrock"), gotID)
+}
+
