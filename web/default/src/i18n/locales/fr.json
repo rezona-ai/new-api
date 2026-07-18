@@ -4521,6 +4521,10 @@
     "Zero retention": "Aucune rétention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Entry RPM": "RPM d'entrée",
+    "Consume RPM: count of consume logs in the last 60 seconds (successful settlement, including zero-quota; excludes error/refund). Independent of the selected time range.": "RPM de consommation : nombre de journaux de consommation des 60 dernières secondes (règlement réussi, y compris quota nul ; hors erreur/remboursement). Indépendant de la plage horaire sélectionnée.",
+    "Entry RPM: count of consume + error logs in the last 60 seconds (gateway-logged requests). Auth/quota failures that skip error logging may undercount. Independent of the selected time range.": "RPM d'entrée : nombre de journaux de consommation + d'erreur des 60 dernières secondes (requêtes journalisées par la passerelle). Les échecs d'auth/quota sans journal d'erreur peuvent sous-compter. Indépendant de la plage horaire sélectionnée.",
+    "TPM: sum of prompt + completion tokens from consume logs in the last 60 seconds. Independent of the selected time range.": "TPM : somme des tokens prompt + completion des journaux de consommation des 60 dernières secondes. Indépendant de la plage horaire sélectionnée."
   }
 }

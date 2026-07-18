@@ -4521,6 +4521,10 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Entry RPM": "入口 RPM",
+    "Consume RPM: count of consume logs in the last 60 seconds (successful settlement, including zero-quota; excludes error/refund). Independent of the selected time range.": "消費 RPM：直近 60 秒の消費ログ件数（成功精算。課金額 0 を含む。エラー/返金は除外）。選択した時間範囲とは無関係です。",
+    "Entry RPM: count of consume + error logs in the last 60 seconds (gateway-logged requests). Auth/quota failures that skip error logging may undercount. Independent of the selected time range.": "入口 RPM：直近 60 秒の消費 + エラーログ件数（ゲートウェイが記録したリクエスト）。認証/枠不足でエラーログを書かない失敗は過小計上されることがあります。選択した時間範囲とは無関係です。",
+    "TPM: sum of prompt + completion tokens from consume logs in the last 60 seconds. Independent of the selected time range.": "TPM：直近 60 秒の消費ログにおける prompt + completion トークン合計。選択した時間範囲とは無関係です。"
   }
 }

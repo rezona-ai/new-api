@@ -4521,6 +4521,10 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Entry RPM": "RPM đầu vào",
+    "Consume RPM: count of consume logs in the last 60 seconds (successful settlement, including zero-quota; excludes error/refund). Independent of the selected time range.": "RPM tiêu thụ: số log tiêu thụ trong 60 giây gần nhất (thanh toán thành công, gồm quota=0; không gồm lỗi/hoàn tiền). Không phụ thuộc khoảng thời gian đã chọn.",
+    "Entry RPM: count of consume + error logs in the last 60 seconds (gateway-logged requests). Auth/quota failures that skip error logging may undercount. Independent of the selected time range.": "RPM đầu vào: số log tiêu thụ + lỗi trong 60 giây gần nhất (request được gateway ghi log). Lỗi auth/quota không ghi error log có thể bị thiếu. Không phụ thuộc khoảng thời gian đã chọn.",
+    "TPM: sum of prompt + completion tokens from consume logs in the last 60 seconds. Independent of the selected time range.": "TPM: tổng token prompt + completion từ log tiêu thụ trong 60 giây gần nhất. Không phụ thuộc khoảng thời gian đã chọn."
   }
 }

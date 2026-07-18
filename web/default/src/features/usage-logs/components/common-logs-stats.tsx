@@ -23,6 +23,11 @@ import { formatLogQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useIsAdmin } from '@/hooks/use-admin'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { getLogStats, getUserLogStats } from '../api'
 import { DEFAULT_LOG_STATS } from '../constants'
 import { buildApiParams } from '../lib/utils'
@@ -34,8 +39,9 @@ function StatBadge(props: {
   label: string
   value: string | number
   accent: string
+  tooltip?: string
 }) {
-  return (
+  const badge = (
     <span className='border-border/60 bg-muted/25 inline-flex h-7 items-center gap-2 rounded-md border px-2.5 text-xs shadow-xs'>
       <span className={cn('h-3.5 w-0.5 rounded-full', props.accent)} />
       <span className='text-muted-foreground'>{props.label}</span>
@@ -43,6 +49,21 @@ function StatBadge(props: {
         {props.value}
       </span>
     </span>
+  )
+
+  if (!props.tooltip) {
+    return badge
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className='cursor-help' />}>
+        {badge}
+      </TooltipTrigger>
+      <TooltipContent className='max-w-xs text-left leading-relaxed'>
+        {props.tooltip}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -79,6 +100,7 @@ export function CommonLogsStats() {
       <div className='flex items-center gap-2'>
         <Skeleton className='h-7 w-[150px] rounded-md' />
         <Skeleton className='h-7 w-[100px] rounded-md' />
+        <Skeleton className='h-7 w-[110px] rounded-md' />
         <Skeleton className='h-7 w-[120px] rounded-md' />
       </div>
     )
@@ -95,11 +117,25 @@ export function CommonLogsStats() {
         label={t('RPM')}
         value={stats?.rpm || 0}
         accent='bg-rose-500/65'
+        tooltip={t(
+          'Consume RPM: count of consume logs in the last 60 seconds (successful settlement, including zero-quota; excludes error/refund). Independent of the selected time range.'
+        )}
+      />
+      <StatBadge
+        label={t('Entry RPM')}
+        value={stats?.entry_rpm || 0}
+        accent='bg-amber-500/65'
+        tooltip={t(
+          'Entry RPM: count of consume + error logs in the last 60 seconds (gateway-logged requests). Auth/quota failures that skip error logging may undercount. Independent of the selected time range.'
+        )}
       />
       <StatBadge
         label={t('TPM')}
         value={stats?.tpm || 0}
         accent='bg-slate-400/70'
+        tooltip={t(
+          'TPM: sum of prompt + completion tokens from consume logs in the last 60 seconds. Independent of the selected time range.'
+        )}
       />
     </div>
   )

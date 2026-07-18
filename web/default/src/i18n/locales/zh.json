@@ -4529,6 +4529,10 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Entry RPM": "入口 RPM",
+    "Consume RPM: count of consume logs in the last 60 seconds (successful settlement, including zero-quota; excludes error/refund). Independent of the selected time range.": "消费 RPM：最近 60 秒消费日志条数（成功结算，含实扣为 0；不含失败/退款）。与所选时间范围无关。",
+    "Entry RPM: count of consume + error logs in the last 60 seconds (gateway-logged requests). Auth/quota failures that skip error logging may undercount. Independent of the selected time range.": "入口 RPM：最近 60 秒消费 + 错误日志条数（网关写入请求日志的入口量）。部分鉴权/额度失败不记错误日志，可能略低估。与所选时间范围无关。",
+    "TPM: sum of prompt + completion tokens from consume logs in the last 60 seconds. Independent of the selected time range.": "TPM：最近 60 秒消费日志的 prompt + completion token 之和。与所选时间范围无关。"
   }
 }

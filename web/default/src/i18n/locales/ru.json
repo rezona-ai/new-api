@@ -4521,6 +4521,10 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Entry RPM": "Входной RPM",
+    "Consume RPM: count of consume logs in the last 60 seconds (successful settlement, including zero-quota; excludes error/refund). Independent of the selected time range.": "RPM потребления: число логов потребления за последние 60 секунд (успешный расчёт, включая нулевую квоту; без ошибок/возвратов). Не зависит от выбранного диапазона времени.",
+    "Entry RPM: count of consume + error logs in the last 60 seconds (gateway-logged requests). Auth/quota failures that skip error logging may undercount. Independent of the selected time range.": "Входной RPM: число логов потребления + ошибок за последние 60 секунд (запросы, записанные шлюзом). Сбои auth/квоты без error-лога могут занижать значение. Не зависит от выбранного диапазона времени.",
+    "TPM: sum of prompt + completion tokens from consume logs in the last 60 seconds. Independent of the selected time range.": "TPM: сумма prompt + completion токенов из логов потребления за последние 60 секунд. Не зависит от выбранного диапазона времени."
   }
 }
