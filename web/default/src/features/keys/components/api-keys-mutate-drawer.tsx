@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm, type SubmitErrorHandler } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
@@ -116,7 +116,7 @@ export function ApiKeysMutateDrawer({
 
   const models = modelsData?.data || []
   const groupsRaw = groupsData?.data || {}
-  const groups: ApiKeyGroupOption[] = Object.entries(groupsRaw).map(
+  const visibleGroups: ApiKeyGroupOption[] = Object.entries(groupsRaw).map(
     ([key, info]) => ({
       value: key,
       label: key,
@@ -124,13 +124,34 @@ export function ApiKeysMutateDrawer({
       ratio: info.ratio,
     })
   )
-  const backendHasAuto = groups.some((g) => g.value === 'auto')
+  const backendHasAuto = visibleGroups.some((g) => g.value === 'auto')
   const schema = getApiKeyFormSchema(t)
 
   const form = useForm<ApiKeyFormValues>({
     resolver: zodResolver(schema),
     defaultValues: getApiKeyFormDefaultValues(defaultUseAutoGroup),
   })
+  const selectedGroup = form.watch('group')
+
+  // Keep the key's existing group selectable/displayable even if it was hidden
+  // from /api/user/self/groups (HiddenGroups). Hiding must not rewrite token.group.
+  const groups: ApiKeyGroupOption[] = useMemo(() => {
+    if (
+      !isUpdate ||
+      !selectedGroup ||
+      visibleGroups.some((g) => g.value === selectedGroup)
+    ) {
+      return visibleGroups
+    }
+    return [
+      ...visibleGroups,
+      {
+        value: selectedGroup,
+        label: selectedGroup,
+        desc: selectedGroup,
+      },
+    ]
+  }, [isUpdate, selectedGroup, visibleGroups])
 
   // Load existing data when updating
   useEffect(() => {
@@ -147,21 +168,22 @@ export function ApiKeysMutateDrawer({
     }
   }, [open, isUpdate, currentRow, form, defaultUseAutoGroup, backendHasAuto])
 
-  // Correct group after groups load: if the form value is not in available groups, fall back
+  // Create mode only: if the default group is not in the visible list, fall back.
+  // Never rewrite an existing key's group when it is merely hidden.
   useEffect(() => {
-    if (groups.length === 0) return
+    if (isUpdate || visibleGroups.length === 0) return
     const currentGroup = form.getValues('group')
-    if (currentGroup && !groups.some((g) => g.value === currentGroup)) {
+    if (currentGroup && !visibleGroups.some((g) => g.value === currentGroup)) {
       const fallback =
-        groups.find((g) => g.value === 'default')?.value ??
-        groups[0]?.value ??
+        visibleGroups.find((g) => g.value === 'default')?.value ??
+        visibleGroups[0]?.value ??
         ''
       form.setValue('group', fallback)
       if (currentGroup === 'auto') {
         form.setValue('cross_group_retry', false)
       }
     }
-  }, [groups, form])
+  }, [visibleGroups, form, isUpdate])
 
   const onSubmit = async (data: ApiKeyFormValues) => {
     setIsSubmitting(true)
@@ -243,7 +265,6 @@ export function ApiKeysMutateDrawer({
   const quotaPlaceholder = tokensOnly
     ? t('Enter quota in tokens')
     : t('Enter quota in {{currency}}', { currency: currencyLabel })
-  const selectedGroup = form.watch('group')
   const unlimitedQuota = form.watch('unlimited_quota')
 
   return (
