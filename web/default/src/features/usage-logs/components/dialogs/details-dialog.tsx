@@ -521,6 +521,13 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   mono
                 />
               )}
+              {other?.client_request_id && (
+                <DetailRow
+                  label={t('Client Request ID')}
+                  value={other.client_request_id}
+                  mono
+                />
+              )}
               {props.log.upstream_request_id && (
                 <DetailRow
                   label={t('Upstream Request ID')}

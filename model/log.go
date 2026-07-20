@@ -158,12 +158,41 @@ func RecordTopupLog(userId int, content string, callerIp string, paymentMethod s
 	}
 }
 
+// clientRequestIDMaxLen caps client-supplied X-Request-Id stored in log.other
+// to keep the JSON column bounded against abusive headers.
+const clientRequestIDMaxLen = 256
+
+// attachClientRequestID copies the inbound X-Request-Id (if present) into
+// other["client_request_id"] for pure display in the usage-logs detail dialog.
+// It never overwrites a value already set by the caller. Empty / missing headers
+// are ignored. Go's Header.Get is case-insensitive, so "x-request-id" matches.
+func attachClientRequestID(c *gin.Context, other map[string]interface{}) map[string]interface{} {
+	if c == nil || c.Request == nil {
+		return other
+	}
+	id := strings.TrimSpace(c.GetHeader("X-Request-Id"))
+	if id == "" {
+		return other
+	}
+	if len(id) > clientRequestIDMaxLen {
+		id = id[:clientRequestIDMaxLen]
+	}
+	if other == nil {
+		other = make(map[string]interface{})
+	}
+	if _, exists := other["client_request_id"]; !exists {
+		other["client_request_id"] = id
+	}
+	return other
+}
+
 func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
 	isStream bool, group string, other map[string]interface{}) {
 	logger.LogInfo(c, fmt.Sprintf("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, channelId, modelName, tokenName, common.LocalLogPreview(content)))
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
+	other = attachClientRequestID(c, other)
 	otherStr := common.MapToJsonStr(other)
 	// 判断是否需要记录 IP
 	needRecordIp := false
@@ -227,6 +256,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
+	params.Other = attachClientRequestID(c, params.Other)
 	otherStr := common.MapToJsonStr(params.Other)
 	// 判断是否需要记录 IP
 	needRecordIp := false

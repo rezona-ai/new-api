@@ -111,6 +111,8 @@ export interface LogOtherData {
     admin_id?: number | string
   }
   request_path?: string
+  // client_request_id is the inbound X-Request-Id header, stored for display only.
+  client_request_id?: string
   request_conversion?: string[]
   ws?: boolean
   audio?: boolean
