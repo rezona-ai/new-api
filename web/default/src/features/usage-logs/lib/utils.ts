@@ -215,6 +215,9 @@ export function buildApiParams(config: {
     ...(searchParams.upstreamRequestId
       ? { upstream_request_id: String(searchParams.upstreamRequestId) }
       : {}),
+    ...(searchParams.clientRequestId
+      ? { client_request_id: String(searchParams.clientRequestId) }
+      : {}),
     ...buildTimeRangeParams(searchParams, false),
   }
 
