@@ -52,7 +52,9 @@ type Log struct {
 	Ip                string `json:"ip" gorm:"index;default:''"`
 	RequestId         string `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_logs_request_id;default:''"`
 	UpstreamRequestId string `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
-	Other             string `json:"other"`
+	// ClientRequestId is the inbound X-Request-Id header (if any), for display + exact search.
+	ClientRequestId string `json:"client_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_client_request_id;default:''"`
+	Other           string `json:"other"`
 }
 
 // don't use iota, avoid change log type value
@@ -158,32 +160,25 @@ func RecordTopupLog(userId int, content string, callerIp string, paymentMethod s
 	}
 }
 
-// clientRequestIDMaxLen caps client-supplied X-Request-Id stored in log.other
-// to keep the JSON column bounded against abusive headers.
-const clientRequestIDMaxLen = 256
+// clientRequestIDMaxLen caps client-supplied X-Request-Id stored on the
+// logs.client_request_id column (varchar 128, same as upstream_request_id).
+const clientRequestIDMaxLen = 128
 
-// attachClientRequestID copies the inbound X-Request-Id (if present) into
-// other["client_request_id"] for pure display in the usage-logs detail dialog.
-// It never overwrites a value already set by the caller. Empty / missing headers
-// are ignored. Go's Header.Get is case-insensitive, so "x-request-id" matches.
-func attachClientRequestID(c *gin.Context, other map[string]interface{}) map[string]interface{} {
+// clientRequestIDFromContext returns the inbound X-Request-Id header value
+// (trimmed, capped). Empty/missing headers yield "". Go's Header.Get is
+// case-insensitive, so "x-request-id" matches.
+func clientRequestIDFromContext(c *gin.Context) string {
 	if c == nil || c.Request == nil {
-		return other
+		return ""
 	}
 	id := strings.TrimSpace(c.GetHeader("X-Request-Id"))
 	if id == "" {
-		return other
+		return ""
 	}
 	if len(id) > clientRequestIDMaxLen {
 		id = id[:clientRequestIDMaxLen]
 	}
-	if other == nil {
-		other = make(map[string]interface{})
-	}
-	if _, exists := other["client_request_id"]; !exists {
-		other["client_request_id"] = id
-	}
-	return other
+	return id
 }
 
 func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
@@ -192,7 +187,7 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
-	other = attachClientRequestID(c, other)
+	clientRequestId := clientRequestIDFromContext(c)
 	otherStr := common.MapToJsonStr(other)
 	// 判断是否需要记录 IP
 	needRecordIp := false
@@ -225,6 +220,7 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 		}(),
 		RequestId:         requestId,
 		UpstreamRequestId: upstreamRequestId,
+		ClientRequestId:   clientRequestId,
 		Other:             otherStr,
 	}
 	err := LOG_DB.Create(log).Error
@@ -256,7 +252,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
-	params.Other = attachClientRequestID(c, params.Other)
+	clientRequestId := clientRequestIDFromContext(c)
 	otherStr := common.MapToJsonStr(params.Other)
 	// 判断是否需要记录 IP
 	needRecordIp := false
@@ -289,6 +285,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		}(),
 		RequestId:         requestId,
 		UpstreamRequestId: upstreamRequestId,
+		ClientRequestId:   clientRequestId,
 		Other:             otherStr,
 	}
 	err := LOG_DB.Create(log).Error
@@ -345,7 +342,7 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 }
 
-func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
+func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string, clientRequestId string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
 		tx = LOG_DB
@@ -367,6 +364,9 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	}
 	if upstreamRequestId != "" {
 		tx = tx.Where("logs.upstream_request_id = ?", upstreamRequestId)
+	}
+	if clientRequestId != "" {
+		tx = tx.Where("logs.client_request_id = ?", clientRequestId)
 	}
 	if startTimestamp != 0 {
 		tx = tx.Where("logs.created_at >= ?", startTimestamp)
@@ -434,7 +434,7 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 
 const logSearchCountLimit = 10000
 
-func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
+func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string, clientRequestId string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
 		tx = LOG_DB.Where("logs.user_id = ?", userId)
@@ -453,6 +453,9 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	}
 	if upstreamRequestId != "" {
 		tx = tx.Where("logs.upstream_request_id = ?", upstreamRequestId)
+	}
+	if clientRequestId != "" {
+		tx = tx.Where("logs.client_request_id = ?", clientRequestId)
 	}
 	if startTimestamp != 0 {
 		tx = tx.Where("logs.created_at >= ?", startTimestamp)

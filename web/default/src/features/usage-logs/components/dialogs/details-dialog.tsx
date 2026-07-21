@@ -521,10 +521,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   mono
                 />
               )}
-              {other?.client_request_id && (
+              {props.log.client_request_id && (
                 <DetailRow
                   label={t('Client Request ID')}
-                  value={other.client_request_id}
+                  value={props.log.client_request_id}
                   mono
                 />
               )}

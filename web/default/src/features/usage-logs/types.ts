@@ -53,6 +53,7 @@ export interface CommonLogFilters extends CommonFilters {
   username?: string
   requestId?: string
   upstreamRequestId?: string
+  clientRequestId?: string
 }
 
 /**
@@ -111,8 +112,6 @@ export interface LogOtherData {
     admin_id?: number | string
   }
   request_path?: string
-  // client_request_id is the inbound X-Request-Id header, stored for display only.
-  client_request_id?: string
   request_conversion?: string[]
   ws?: boolean
   audio?: boolean
@@ -272,6 +271,7 @@ export interface GetLogsParams {
   group?: string
   request_id?: string
   upstream_request_id?: string
+  client_request_id?: string
 }
 
 export interface GetLogsResponse {
@@ -296,6 +296,7 @@ export interface GetLogStatsParams {
   group?: string
   request_id?: string
   upstream_request_id?: string
+  client_request_id?: string
 }
 
 export interface GetLogStatsResponse {
