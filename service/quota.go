@@ -334,6 +334,13 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		logContent = fmt.Sprintf("模型价格 %.2f，分组倍率 %.2f", modelPrice, groupRatio)
 	}
 
+	// 本地估算路径且策略关闭：整单不扣费（保留估算 token 供日志审计）。
+	var audioExtraContents []string
+	if extraContent != "" {
+		audioExtraContents = append(audioExtraContents, extraContent)
+	}
+	localTokenBillingSkipped := applyLocalTokenBillingPolicy(ctx, relayInfo, &quota, &audioExtraContents)
+
 	// record all the consume log even if quota is 0
 	if totalTokens == 0 {
 		// in this case, must be some error happened
@@ -352,13 +359,16 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 	}
 
 	logModel := relayInfo.OriginModelName
-	if extraContent != "" {
-		logContent += ", " + extraContent
+	if len(audioExtraContents) > 0 {
+		logContent += ", " + strings.Join(audioExtraContents, ", ")
 	}
 	other := GenerateAudioOtherInfo(ctx, relayInfo, usage, modelRatio, groupRatio,
 		completionRatio.InexactFloat64(), audioRatio.InexactFloat64(), audioCompletionRatio.InexactFloat64(), modelPrice, relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio)
 	if tieredResult != nil {
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
+	}
+	if localTokenBillingSkipped {
+		markLocalTokenBillingSkipped(other)
 	}
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,

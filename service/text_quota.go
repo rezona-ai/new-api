@@ -194,6 +194,11 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.IsClaudeUsageSemantic = summary.UsageSemantic == "anthropic"
 
 	if usage == nil {
+		// 无上游 usage 时用估算 prompt 伪造计费用量，必须标记为本地估算，
+		// 以便结算层可按 allow_local_token_billing 整单归零。
+		if ctx != nil {
+			common.SetContextKey(ctx, constant.ContextKeyLocalCountTokens, true)
+		}
 		usage = &dto.Usage{
 			PromptTokens:     relayInfo.GetEstimatePromptTokens(),
 			CompletionTokens: 0,
@@ -380,6 +385,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, fmt.Sprintf("Image Generation Call 花费 %s", perCallQuota(summary.ImageGenerationCallPrice, summary.GroupRatio).String()))
 	}
 
+	// 本地估算路径且策略关闭：整单不扣费（保留估算 token 供日志审计）。
+	localTokenBillingSkipped := applyLocalTokenBillingPolicy(ctx, relayInfo, &summary.Quota, &extraContent)
+
 	if summary.TotalTokens == 0 {
 		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
@@ -475,6 +483,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	if tieredBillingApplied {
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
+	}
+	if localTokenBillingSkipped {
+		markLocalTokenBillingSkipped(other)
 	}
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{

@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -512,4 +514,152 @@ func TestComposeTieredTextQuotaErrorFallbackUsesPreConsumedQuota(t *testing.T) {
 
 	require.Equal(t, int64(12500), summary.ToolCallSurchargeQuota.Round(0).IntPart())
 	require.Equal(t, 14500, quota)
+}
+
+func TestAllowLocalTokenBilling(t *testing.T) {
+	qs := operation_setting.GetQuotaSetting()
+	origGlobal := qs.AllowLocalTokenBilling
+	t.Cleanup(func() {
+		qs.AllowLocalTokenBilling = origGlobal
+	})
+
+	cases := []struct {
+		name        string
+		globalAllow bool
+		channelDis  bool
+		want        bool
+	}{
+		{name: "global on, channel default", globalAllow: true, channelDis: false, want: true},
+		{name: "global off, channel default", globalAllow: false, channelDis: false, want: false},
+		{name: "global on, channel disable", globalAllow: true, channelDis: true, want: false},
+		{name: "global off, channel disable", globalAllow: false, channelDis: true, want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			qs.AllowLocalTokenBilling = tc.globalAllow
+			info := &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelSetting: dto.ChannelSettings{
+						DisableLocalTokenBilling: tc.channelDis,
+					},
+				},
+			}
+			require.Equal(t, tc.want, AllowLocalTokenBilling(info))
+		})
+	}
+
+	t.Run("nil relay info follows global", func(t *testing.T) {
+		qs.AllowLocalTokenBilling = true
+		require.True(t, AllowLocalTokenBilling(nil))
+		qs.AllowLocalTokenBilling = false
+		require.False(t, AllowLocalTokenBilling(nil))
+	})
+}
+
+func TestApplyLocalTokenBillingPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	qs := operation_setting.GetQuotaSetting()
+	origGlobal := qs.AllowLocalTokenBilling
+	t.Cleanup(func() {
+		qs.AllowLocalTokenBilling = origGlobal
+	})
+
+	newCtx := func(local bool) *gin.Context {
+		w := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(w)
+		if local {
+			common.SetContextKey(ctx, constant.ContextKeyLocalCountTokens, true)
+		}
+		return ctx
+	}
+
+	t.Run("local + global disabled forces quota 0", func(t *testing.T) {
+		qs.AllowLocalTokenBilling = false
+		ctx := newCtx(true)
+		quota := 1234
+		var extra []string
+		info := &relaycommon.RelayInfo{}
+		skipped := applyLocalTokenBillingPolicy(ctx, info, &quota, &extra)
+		require.True(t, skipped)
+		require.Equal(t, 0, quota)
+		require.Contains(t, strings.Join(extra, ","), "本地计费已关闭")
+	})
+
+	t.Run("local + channel disable forces quota 0 even if global allows", func(t *testing.T) {
+		qs.AllowLocalTokenBilling = true
+		ctx := newCtx(true)
+		quota := 999
+		var extra []string
+		info := &relaycommon.RelayInfo{
+			ChannelMeta: &relaycommon.ChannelMeta{
+				ChannelSetting: dto.ChannelSettings{DisableLocalTokenBilling: true},
+			},
+		}
+		skipped := applyLocalTokenBillingPolicy(ctx, info, &quota, &extra)
+		require.True(t, skipped)
+		require.Equal(t, 0, quota)
+	})
+
+	t.Run("local + allowed keeps quota", func(t *testing.T) {
+		qs.AllowLocalTokenBilling = true
+		ctx := newCtx(true)
+		quota := 500
+		var extra []string
+		info := &relaycommon.RelayInfo{}
+		skipped := applyLocalTokenBillingPolicy(ctx, info, &quota, &extra)
+		require.False(t, skipped)
+		require.Equal(t, 500, quota)
+		require.Empty(t, extra)
+	})
+
+	t.Run("non-local + global disabled keeps quota", func(t *testing.T) {
+		qs.AllowLocalTokenBilling = false
+		ctx := newCtx(false)
+		quota := 777
+		var extra []string
+		info := &relaycommon.RelayInfo{}
+		skipped := applyLocalTokenBillingPolicy(ctx, info, &quota, &extra)
+		require.False(t, skipped)
+		require.Equal(t, 777, quota)
+	})
+}
+
+func TestCalculateTextQuotaSummaryMarksNilUsageAsLocal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+
+	relayInfo := &relaycommon.RelayInfo{
+		OriginModelName: "gpt-4o",
+		PriceData: types.PriceData{
+			ModelRatio:      1,
+			CompletionRatio: 1,
+			GroupRatioInfo:  types.GroupRatioInfo{GroupRatio: 1},
+		},
+		StartTime: time.Now(),
+	}
+	// EstimatePromptTokens defaults to 0 unless set via context; force non-zero by
+	// setting PromptTokens on the relay path is hard without full middleware, so just
+	// assert the local-count flag is set when usage is nil.
+	_ = calculateTextQuotaSummary(ctx, relayInfo, nil)
+	require.True(t, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens))
+}
+
+func TestMarkLocalTokenBillingSkipped(t *testing.T) {
+	other := map[string]interface{}{
+		"admin_info": map[string]interface{}{
+			"local_count_tokens": true,
+		},
+	}
+	markLocalTokenBillingSkipped(other)
+	adminInfo := other["admin_info"].(map[string]interface{})
+	require.Equal(t, true, adminInfo["local_count_tokens"])
+	require.Equal(t, true, adminInfo["local_token_billing_skipped"])
+	require.Equal(t, "disabled", adminInfo["local_token_billing_skip_reason"])
+
+	other2 := map[string]interface{}{}
+	markLocalTokenBillingSkipped(other2)
+	adminInfo2 := other2["admin_info"].(map[string]interface{})
+	require.Equal(t, true, adminInfo2["local_token_billing_skipped"])
 }

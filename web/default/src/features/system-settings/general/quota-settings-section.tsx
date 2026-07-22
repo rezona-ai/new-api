@@ -58,6 +58,7 @@ const quotaSchema = z.object({
   }),
   quota_setting: z.object({
     enable_free_model_pre_consume: z.boolean(),
+    allow_local_token_billing: z.boolean(),
   }),
 })
 
@@ -229,6 +230,32 @@ export function QuotaSettingsSection({
                       <FormDescription>
                         {t(
                           'When enabled, zero-cost models also pre-consume quota before final settlement.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        disabled={updateOption.isPending}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+            </SettingsFormGridItem>
+
+            <SettingsFormGridItem span='full'>
+              <FormField
+                control={form.control}
+                name='quota_setting.allow_local_token_billing'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Allow Local Token Billing')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'When disabled, requests without upstream usage will not be charged based on locally estimated tokens; pre-consumed quota is refunded and a zero-quota consume log is still recorded.'
                         )}
                       </FormDescription>
                     </SettingsSwitchContent>
