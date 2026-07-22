@@ -69,6 +69,8 @@ const BILLING_SECTIONS = [
           quota_setting: {
             enable_free_model_pre_consume:
               settings['quota_setting.enable_free_model_pre_consume'],
+            allow_local_token_billing:
+              settings['quota_setting.allow_local_token_billing'],
           },
         }}
         complianceConfirmed={

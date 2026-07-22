@@ -33,6 +33,7 @@ const defaultBillingSettings: BillingSettings = {
   TopUpLink: '',
   'general_setting.docs_link': '',
   'quota_setting.enable_free_model_pre_consume': true,
+  'quota_setting.allow_local_token_billing': true,
   QuotaPerUnit: DEFAULT_CURRENCY_CONFIG.quotaPerUnit,
   USDExchangeRate: DEFAULT_CURRENCY_CONFIG.usdExchangeRate,
   'general_setting.quota_display_type': 'USD',

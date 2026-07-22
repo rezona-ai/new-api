@@ -4534,6 +4534,10 @@
     "Entry RPM": "Entry RPM",
     "Consume RPM: count of consume logs in the last 60 seconds (successful settlement, including zero-quota; excludes error/refund). Independent of the selected time range.": "Consume RPM: count of consume logs in the last 60 seconds (successful settlement, including zero-quota; excludes error/refund). Independent of the selected time range.",
     "Entry RPM: count of consume + error logs in the last 60 seconds (gateway-logged requests). Auth/quota failures that skip error logging may undercount. Independent of the selected time range.": "Entry RPM: count of consume + error logs in the last 60 seconds (gateway-logged requests). Auth/quota failures that skip error logging may undercount. Independent of the selected time range.",
-    "TPM: sum of prompt + completion tokens from consume logs in the last 60 seconds. Independent of the selected time range.": "TPM: sum of prompt + completion tokens from consume logs in the last 60 seconds. Independent of the selected time range."
+    "TPM: sum of prompt + completion tokens from consume logs in the last 60 seconds. Independent of the selected time range.": "TPM: sum of prompt + completion tokens from consume logs in the last 60 seconds. Independent of the selected time range.",
+    "Allow Local Token Billing": "Allow Local Token Billing",
+    "When disabled, requests without upstream usage will not be charged based on locally estimated tokens; pre-consumed quota is refunded and a zero-quota consume log is still recorded.": "When disabled, requests without upstream usage will not be charged based on locally estimated tokens; pre-consumed quota is refunded and a zero-quota consume log is still recorded.",
+    "Disable Local Token Billing": "Disable Local Token Billing",
+    "When enabled, this channel never charges based on locally estimated tokens even if global local token billing is allowed.": "When enabled, this channel never charges based on locally estimated tokens even if global local token billing is allowed."
   }
 }

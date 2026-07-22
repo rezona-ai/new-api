@@ -195,6 +195,7 @@ export type BillingSettings = {
   TopUpLink: string
   'general_setting.docs_link': string
   'quota_setting.enable_free_model_pre_consume': boolean
+  'quota_setting.allow_local_token_billing': boolean
   QuotaPerUnit: number
   USDExchangeRate: number
   'general_setting.quota_display_type': string
