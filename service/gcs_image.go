@@ -292,11 +292,14 @@ func TransferImages(ctx context.Context, namer ObjectNamer, srcs []ImageSource, 
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			start := time.Now()
 			res, err := TransferImage(ctx, namer, idx, srcs[idx], opts)
 			if err != nil {
 				recordImageTransferFailure(ctx, idx, err)
 				return
 			}
+			gcsMetrics.imageSuccess.Add(1)
+			gcsMetrics.recordImageDuration(opts.ChannelTypeLabel, time.Since(start))
 			results[idx] = res
 		}(i)
 	}
@@ -304,9 +307,28 @@ func TransferImages(ctx context.Context, namer ObjectNamer, srcs []ImageSource, 
 	return results
 }
 
-// recordImageTransferFailure 生图转存失败的统一观测点。
-// Task 7 会在此基础上补上按 kind 的指标计数——失败绝不重试（同步路径，重试只放大
-// 用户等待），也绝不转成 relay error（会触发渠道重试 + 最终退款）。
+// recordImageTransferFailure 生图转存失败的统一观测点：按 kind 计数 + error 日志。
+// 失败绝不重试（同步路径，重试只放大用户等待），也绝不转成 relay error
+//（会触发渠道重试，最终失败还会退款）。
 func recordImageTransferFailure(ctx context.Context, index int, err error) {
-	logger.LogError(ctx, fmt.Sprintf("gcs-image transfer fail index=%d err=%s", index, err.Error()))
+	kind := imageFailKind(err)
+	gcsMetrics.recordImageFailure(kind)
+	logger.LogError(ctx, fmt.Sprintf("gcs-image transfer fail kind=%s index=%d err=%s", kind, index, err.Error()))
+}
+
+// RecordImageTransferFailure 生图转存失败观测点的导出版本，供 relay 层调用
+//（relay 直接按张调用 TransferImage 以便把结果对回 data[] 下标，因此埋点在那一层）。
+func RecordImageTransferFailure(ctx context.Context, index int, err error) {
+	recordImageTransferFailure(ctx, index, err)
+}
+
+// RecordImageTransferSuccess 生图转存成功计数 + 耗时直方图（供 relay 层调用）。
+func RecordImageTransferSuccess(channelTypeLabel string, d time.Duration) {
+	gcsMetrics.imageSuccess.Add(1)
+	gcsMetrics.recordImageDuration(channelTypeLabel, d)
+}
+
+// RecordImagePassthrough 整体未改写（解析失败/非 JSON/流式/缓冲超限/转存全失败）计数。
+func RecordImagePassthrough() {
+	gcsMetrics.imagePassthrough.Add(1)
 }

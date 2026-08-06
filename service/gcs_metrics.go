@@ -76,6 +76,21 @@ type gcsMetricsRegistry struct {
 	// ── 计费失败（清单项 14：资金/令牌额度调整吞错点）──
 	billingAdjustFail atomic.Int64
 
+	// ── 生图转存（image-gen-cdn 设计 4.11）──
+	imageSuccess         atomic.Int64
+	imageDownloadFail    atomic.Int64 // 上游取流失败（含非 200）：上游 CDN 提前过期的第一信号
+	imageDecodeFail      atomic.Int64 // base64 解码失败
+	imageMimeReject      atomic.Int64 // MIME 不在图片白名单
+	imageOversize        atomic.Int64 // 超过 GCS_IMAGE_MAX_SIZE
+	imageGCSAuthFail     atomic.Int64
+	imageGCSServiceFail  atomic.Int64
+	imageCorruptObject   atomic.Int64 // 复用前完整性校验不通过
+	imageSignFail        atomic.Int64
+	imagePassthrough     atomic.Int64 // 整体未改写（解析失败/非 JSON/流式/缓冲超限/转存全失败）
+	imageBytesDownloaded atomic.Int64
+	imageBytesUploaded   atomic.Int64
+	imageDurations       sync.Map // channelType(string) -> *gcsDurationHist
+
 	// ── worker 运行状态 ──
 	inflight       atomic.Int64 // gauge：当前 inflight worker 数（含信号量排队中）
 	pollBacklog    atomic.Int64 // gauge：最近一轮轮询集合中转存阶段任务数（master）
@@ -205,7 +220,11 @@ func (r *gcsMetricsRegistry) countersTotal() int64 {
 		r.oversize.Load() + r.corruptObject.Load() + r.extractFail.Load() +
 		r.deadlineExhausted.Load() + r.casLost.Load() + r.degradeComplete.Load() +
 		r.signFailAuth.Load() + r.signFailService.Load() + r.resultExpired.Load() +
-		r.billingAdjustFail.Load() + r.queueWaitCount.Load()
+		r.billingAdjustFail.Load() + r.queueWaitCount.Load() +
+		r.imageSuccess.Load() + r.imageDownloadFail.Load() + r.imageDecodeFail.Load() +
+		r.imageMimeReject.Load() + r.imageOversize.Load() + r.imageGCSAuthFail.Load() +
+		r.imageGCSServiceFail.Load() + r.imageCorruptObject.Load() + r.imageSignFail.Load() +
+		r.imagePassthrough.Load()
 }
 
 // startGCSMetricsReporter 启动周期性统计日志 goroutine（幂等，所有实例均运行：
@@ -225,6 +244,7 @@ func gcsMetricsReportLoop() {
 		if total := gcsMetrics.countersTotal(); total != lastTotal {
 			lastTotal = total
 			common.SysLog(gcsMetrics.countersLogLine())
+			common.SysLog(gcsMetrics.imageCountersLogLine())
 			for _, line := range gcsMetrics.durationLogLines() {
 				common.SysLog(line)
 			}
@@ -275,6 +295,83 @@ func (r *gcsMetricsRegistry) durationLogLines() []string {
 	})
 	sort.Strings(lines)
 	return lines
+}
+
+// imageFailKind 把一次生图转存失败归类到 4.11 计数器。
+// 分类标记优先于按错误类型推断；下载/解码/MIME 三类靠 TransferImage 的错误前缀识别
+//（这些错误由本包构造，前缀稳定）。
+func imageFailKind(err error) string {
+	switch {
+	case errors.Is(err, errGCSAssetOversize):
+		return "oversize"
+	case errors.Is(err, ErrGCSObjectCorrupted):
+		return "corrupt-object"
+	case strings.Contains(err.Error(), "download failed"),
+		strings.Contains(err.Error(), "upstream returned "):
+		return "download-fail"
+	case strings.Contains(err.Error(), "decode base64 failed"):
+		return "decode-fail"
+	case strings.Contains(err.Error(), "unsupported image mime"):
+		return "mime-reject"
+	case isGCSAuthError(err):
+		return "gcs-auth-fail"
+	default:
+		return "gcs-service-fail"
+	}
+}
+
+// recordImageFailure 按分类累加生图转存失败计数。
+func (r *gcsMetricsRegistry) recordImageFailure(kind string) {
+	switch kind {
+	case "oversize":
+		r.imageOversize.Add(1)
+	case "corrupt-object":
+		r.imageCorruptObject.Add(1)
+	case "download-fail":
+		r.imageDownloadFail.Add(1)
+	case "decode-fail":
+		r.imageDecodeFail.Add(1)
+	case "mime-reject":
+		r.imageMimeReject.Add(1)
+	case "gcs-auth-fail":
+		r.imageGCSAuthFail.Add(1)
+	default:
+		r.imageGCSServiceFail.Add(1)
+	}
+}
+
+// recordImageDuration 按渠道类型累加生图转存耗时直方图——它直接构成用户感知延迟，
+// 是校准 GCS_IMAGE_CONCURRENCY 的唯一依据。
+func (r *gcsMetricsRegistry) recordImageDuration(channelType string, d time.Duration) {
+	if channelType == "" {
+		channelType = "unknown"
+	}
+	v, _ := r.imageDurations.LoadOrStore(channelType, &gcsDurationHist{})
+	h := v.(*gcsDurationHist)
+	sec := int64(d / time.Second)
+	idx := len(gcsDurationBucketSeconds)
+	for i, le := range gcsDurationBucketSeconds {
+		if sec <= le {
+			idx = i
+			break
+		}
+	}
+	h.buckets[idx].Add(1)
+	h.sumMs.Add(d.Milliseconds())
+	h.count.Add(1)
+}
+
+// imageCountersLogLine 生图指标快照（单行结构化日志，与视频计数器分开一行）。
+func (r *gcsMetricsRegistry) imageCountersLogLine() string {
+	return fmt.Sprintf("gcs-metrics image"+
+		" success=%d download_fail=%d decode_fail=%d mime_reject=%d oversize=%d"+
+		" gcs_auth_fail=%d gcs_service_fail=%d corrupt_object=%d sign_fail=%d passthrough=%d"+
+		" bytes_downloaded=%d bytes_uploaded=%d",
+		r.imageSuccess.Load(), r.imageDownloadFail.Load(), r.imageDecodeFail.Load(),
+		r.imageMimeReject.Load(), r.imageOversize.Load(),
+		r.imageGCSAuthFail.Load(), r.imageGCSServiceFail.Load(),
+		r.imageCorruptObject.Load(), r.imageSignFail.Load(), r.imagePassthrough.Load(),
+		r.imageBytesDownloaded.Load(), r.imageBytesUploaded.Load())
 }
 
 // reportGCSSentinels DB 哨兵查询（仅 master）：
