@@ -60,8 +60,11 @@ func InitGCSStorage() {
 	// 指标 reporter 与开关无关：计费失败计数（清单项 14）在开关关闭时同样需要上报，
 	// 紧急开关关闭期间的降级完成（degrade_complete）也由它观测。
 	startGCSMetricsReporter()
-	if !setting.GCSTransferEnabled {
-		common.SysLog("GCS transfer disabled, skip GCS storage client initialization")
+	// client 初始化条件 = 视频写 || 图片写 || 只读（设计 4.5）。
+	// 只读开关的存在理由：MJ 一旦存了 gs://，关闭写开关后仍必须能签名读出，
+	// 否则存量结果会变成裸 gs:// 泄露给用户。
+	if !setting.GCSTransferEnabled && !setting.GCSImageTransferEnabled && !setting.GCSReadOnlyEnabled {
+		common.SysLog("GCS transfer disabled (video/image/read-only all off), skip GCS storage client initialization")
 		return
 	}
 	if setting.GCSResultBucket == "" {
@@ -90,9 +93,20 @@ func InitGCSStorage() {
 	common.SysLog(fmt.Sprintf("GCS storage client initialized, bucket: %s, prefix: %s", setting.GCSResultBucket, setting.GCSResultPrefix))
 }
 
-// GCSStorageReady 返回 GCS 存储层是否可用（开关开启且 client 初始化成功）。
-func GCSStorageReady() bool {
+// GCSClientReady 返回 GCS client 是否可用（读取/签名的前置条件）。
+// 与任何写开关无关——历史 gs:// 结果在写开关关闭后仍需可读（设计 4.5）。
+func GCSClientReady() bool {
+	return gcsClient != nil
+}
+
+// GCSVideoTransferReady 视频任务转存是否就绪（视频 worker 的启动条件）。
+func GCSVideoTransferReady() bool {
 	return setting.GCSTransferEnabled && gcsClient != nil
+}
+
+// GCSImageTransferReady 生图转存是否就绪（生图写入侧的启动条件）。
+func GCSImageTransferReady() bool {
+	return setting.GCSImageTransferEnabled && gcsClient != nil
 }
 
 // GCSObjectName 按设计的命名规则生成对象名：{prefix}/{task_id}_{index}.{ext}。
