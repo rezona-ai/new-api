@@ -101,6 +101,21 @@ func GetGroupGroupRatio(userGroup, usingGroup string) (float64, bool) {
 	return ratio, true
 }
 
+// GetGroupGroupRatioTargets 返回某个用户分组配置的全部目标分组倍率副本。
+// 第二个返回值区分「该用户分组未配置」与「配置为空对象」，调用方据此决定是否
+// 回退到扁平 GroupRatio。
+func GetGroupGroupRatioTargets(userGroup string) (map[string]float64, bool) {
+	gp, ok := groupGroupRatioMap.Get(userGroup)
+	if !ok {
+		return nil, false
+	}
+	targets := make(map[string]float64, len(gp))
+	for target, ratio := range gp {
+		targets[target] = ratio
+	}
+	return targets, true
+}
+
 func GroupGroupRatio2JSONString() string {
 	return groupGroupRatioMap.MarshalJSONString()
 }
