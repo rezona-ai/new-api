@@ -6,6 +6,8 @@ info:
     可灵官方 API 兼容入口。`middleware.KlingRequestConvert` 将原始可灵请求体整体放入
     统一请求的 `metadata`，再由所选渠道适配器消费，因此可用可灵格式调用 Doubao/Pollo
     的 seedance 模型（`model_name` 填 seedance 模型名，或经渠道模型映射）。
+    Pollo 可直接使用 `seedance-2-0`、`seedance-2-0-fast`、`seedance-2-0-mini`、
+    `seedance-2-5`；2.5 的时长/分辨率范围由 Pollo 上游校验。
 
     ## 可灵字段在 seedance 渠道上的消费情况
     | 可灵字段 | Doubao | Pollo |
@@ -117,12 +119,12 @@ components:
       type: object
       required: [prompt]
       properties:
-        model_name: { type: string, example: seedance-2-0, description: 模型名（也接受 model 键） }
+        model_name: { type: string, example: seedance-2-0, description: 模型名（也接受 model 键；Pollo 支持 seedance-2-5） }
         prompt: { type: string }
         negative_prompt: { type: string, description: seedance 渠道忽略 }
         cfg_scale: { type: number, description: seedance 渠道忽略 }
         mode: { type: string, enum: [std, pro], description: seedance 渠道忽略 }
-        duration: { type: string, enum: ["5", "10"], description: 时长（秒）；seedance 渠道接受 4-15 }
+        duration: { type: string, description: 时长（秒）；模型范围由上游校验，Pollo Seedance 2.5 文档范围为 4-30 }
         aspect_ratio: { type: string, enum: ["16:9", "9:16", "1:1"], description: Pollo 渠道生效；Doubao 渠道忽略 }
         camera_control: { type: object, description: seedance 渠道忽略 }
         callback_url: { type: string }
