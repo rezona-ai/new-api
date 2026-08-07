@@ -195,11 +195,13 @@ export async function getUserModels(): Promise<{
   return res.data
 }
 
-// Get user groups with descriptions and ratios
+// Get user groups with descriptions and ratios.
+// ratio 只在用户分组配置了目标分组倍率（GroupGroupRatio）时返回；没配置时后端不下发，
+// 前端据此隐藏折扣，避免展示出并不存在的折扣。
 export async function getUserGroups(): Promise<{
   success: boolean
   message?: string
-  data?: Record<string, { desc: string; ratio: number | string }>
+  data?: Record<string, { desc: string; ratio?: number | string }>
 }> {
   const res = await api.get('/api/user/self/groups')
   return res.data

@@ -52,6 +52,10 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { safeJsonParse } from '../utils/json-parser'
+import {
+  TargetGroupCombobox,
+  type TargetGroupOption,
+} from './target-group-combobox'
 
 type GroupRatioVisualEditorProps = {
   groupRatio: string
@@ -211,6 +215,30 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
       context: 'auto groups',
     })
   }, [autoGroups])
+
+  // 上方「分组定价」表里的分组，供目标分组选择器搜索
+  const pricingGroupOptions = useMemo<TargetGroupOption[]>(() => {
+    const ratioMap = safeJsonParse<Record<string, number>>(groupRatio, {
+      fallback: {},
+      silent: true,
+    })
+    const usableMap = safeJsonParse<Record<string, string>>(userUsableGroups, {
+      fallback: {},
+      silent: true,
+    })
+    const names = new Set([
+      ...Object.keys(ratioMap),
+      ...Object.keys(usableMap),
+    ])
+
+    return Array.from(names)
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => ({
+        name,
+        ratio: normalizeRatio(ratioMap[name]),
+        description: String(usableMap[name] ?? ''),
+      }))
+  }, [groupRatio, userUsableGroups])
 
   // Parse group-group ratios
   const groupGroupRatioList = useMemo(() => {
@@ -745,6 +773,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
         onSave={handleOverrideSave}
         editData={groupOverrideEditData}
         userGroup={groupOverrideUserGroup}
+        pricingGroups={pricingGroupOptions}
       />
     </div>
   )
@@ -1072,6 +1101,7 @@ type GroupOverrideDialogProps = {
   onSave: (targetGroup: string, ratio: number, oldTargetGroup?: string) => void
   editData: GroupOverride | null
   userGroup: string | null
+  pricingGroups: TargetGroupOption[]
 }
 
 function GroupOverrideDialog({
@@ -1080,6 +1110,7 @@ function GroupOverrideDialog({
   onSave,
   editData,
   userGroup,
+  pricingGroups,
 }: GroupOverrideDialogProps) {
   const { t } = useTranslation()
   const [targetGroup, setTargetGroup] = useState('')
@@ -1127,10 +1158,10 @@ function GroupOverrideDialog({
         <div className='space-y-4 py-4'>
           <div className='space-y-2'>
             <Label>{t('Target group')}</Label>
-            <Input
+            <TargetGroupCombobox
               value={targetGroup}
-              onChange={(e) => setTargetGroup(e.target.value)}
-              placeholder={t('edit_this')}
+              onValueChange={setTargetGroup}
+              options={pricingGroups}
               disabled={!!editData}
             />
             <p className='text-muted-foreground text-xs'>
