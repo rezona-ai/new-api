@@ -25,7 +25,10 @@ import (
 )
 
 // Pollo AI Seedance task adaptor.
-// Docs: https://docs.pollo.ai/m/seedance/seedance-2-0
+// Docs:
+//   - https://docs.pollo.ai/m/seedance/seedance-2-0
+//   - https://docs.pollo.ai/m/seedance/seedance-2-5
+//   - https://docs.pollo.ai/m/seedance/seedance-2-5-ref
 //
 // Auth:   header "x-api-key: <key>"
 // Submit: POST {base}/generation/bytedance/<model>[/ref2video]  -> {taskId, status}
@@ -89,6 +92,19 @@ const (
 	// otherRatioKey labels the pre-charge multiplier injected by EstimateBilling.
 	otherRatioKey = "credit"
 
+	// Seedance 2.5 local fallback rates are derived from BytePlus's official 5-second
+	// no-video-input examples ($0.514 at 480p, $1.156 at 720p), converted through
+	// Pollo's $0.06/list-credit price and then discounted to the returned-credit unit
+	// used by /validate and /status:
+	//
+	//   returned credit/sec = exampleUSD / 5 / 0.06 * upstreamCreditDiscount
+	//
+	// They are only refundable pre-charge estimates when /validate is unavailable;
+	// /status credit remains authoritative for final settlement. Ref requests containing
+	// video input cannot be priced precisely here because its source duration is unknown.
+	seedance25ReturnedCreditPerSecond480p = 1.542
+	seedance25ReturnedCreditPerSecond720p = 3.468
+
 	// validateTimeout bounds the /validate round-trip so it never stalls a submit.
 	validateTimeout = 20 * time.Second
 )
@@ -122,6 +138,7 @@ var modelBasePaths = map[string]string{
 	"seedance-2-0":      "bytedance/seedance-2-0",
 	"seedance-2-0-fast": "bytedance/seedance-2-0-fast",
 	"seedance-2-0-mini": "bytedance/seedance-2-0-mini",
+	"seedance-2-5":      "bytedance/seedance-2-5",
 }
 
 // resolveBasePath picks the Pollo base path for a request, preferring the mapped
@@ -174,8 +191,8 @@ type polloInput struct {
 	ImageTail   string       `json:"imageTail,omitempty"`  // optional tail frame (non-ref only)
 	Resolution  string       `json:"resolution,omitempty"` // 480p | 720p | 1080p
 	AspectRatio string       `json:"aspectRatio,omitempty"`
-	Length      dto.IntValue `json:"length,omitempty"`   // non-ref: 4-15 seconds
-	Duration    dto.IntValue `json:"duration,omitempty"` // ref:     4-15 seconds
+	Length      dto.IntValue `json:"length,omitempty"`   // non-ref duration; provider validates model limits
+	Duration    dto.IntValue `json:"duration,omitempty"` // ref duration; provider validates model limits
 	// Pointer so an explicit metadata.seed:0 (deterministic seed) is preserved upstream;
 	// a non-pointer int+omitempty would drop the 0 and silently turn it into a random seed.
 	Seed *dto.IntValue `json:"seed,omitempty"`
@@ -183,6 +200,9 @@ type polloInput struct {
 	GenerateAudio *dto.BoolValue `json:"generateAudio,omitempty"`
 	WebSearch     *dto.BoolValue `json:"webSearch,omitempty"` // non-ref only
 	VideoNum      dto.IntValue   `json:"videoNum,omitempty"`  // ref only, 1-4
+	// Pointer preserves an explicit false value when forwarding Seedance 2.5 Ref's
+	// optional unlimited flag (absent => omitted; false/true => sent verbatim).
+	Unlimited *dto.BoolValue `json:"unlimited,omitempty"` // Seedance 2.5 ref only
 
 	// SafetyFilter toggles Pollo's upstream text content moderation. Pointer so an explicit
 	// false is preserved instead of being dropped by omitempty.
@@ -201,7 +221,7 @@ type polloInput struct {
 	SafetyFilter *dto.BoolValue `json:"safety_filter,omitempty"`
 
 	// Free-form provider-specific structures, passed through from metadata.
-	Refs      []any `json:"refs,omitempty"`      // ref models: required, 1-13 items
+	Refs      []any `json:"refs,omitempty"`      // ref models: required; provider/model-specific item limit
 	ImageMeta []any `json:"imageMeta,omitempty"` // ref models: optional
 }
 
@@ -586,7 +606,9 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 // AdjustBillingOnComplete returns the authoritative final quota for a completed task,
 // computed from the real Pollo credit (carried in taskResult.TotalTokens = round(credit*scale))
 // and the fixed settleModelRatio, un-discounting the returned credit to the list credit:
-//   quota = round(credit*scale) * settleModelRatio / upstreamCreditDiscount * groupRatio.
+//
+//	quota = round(credit*scale) * settleModelRatio / upstreamCreditDiscount * groupRatio.
+//
 // It deliberately uses settleModelRatio, NOT the snapshot's display ModelRatio, so the
 // charge stays decoupled from the model-square price (see settleModelRatio doc).
 //
@@ -693,8 +715,9 @@ func (a *TaskAdaptor) validateURL(info *relaycommon.RelayInfo) (string, bool) {
 }
 
 // estimateCreditLocal is a rough fallback used ONLY when /validate is unavailable.
-// Coefficients are empirical (measured 2026-06): credit ≈ perSec(model) × seconds × resFactor.
-// It only sizes the refundable pre-charge hold; the final charge is the real status credit.
+// Seedance 2.0 coefficients are empirical (measured 2026-06); Seedance 2.5 uses the
+// official-price-derived returned-credit rates documented above. It only sizes the
+// refundable pre-charge hold; the final charge is the real status credit.
 func (a *TaskAdaptor) estimateCreditLocal(c *gin.Context, info *relaycommon.RelayInfo) float64 {
 	req, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
@@ -707,8 +730,20 @@ func (a *TaskAdaptor) estimateCreditLocal(c *gin.Context, info *relaycommon.Rela
 		resolution = r
 	}
 
-	perSec := 3.0 // standard @720p
-	if strings.Contains(info.OriginModelName, "fast") {
+	basePath, _ := resolveBasePath(info)
+	if basePath == "bytedance/seedance-2-5" {
+		switch resolution {
+		case "480p":
+			return seedance25ReturnedCreditPerSecond480p * seconds
+		default:
+			// 720p is the request default. Unknown values (including 1080p) are deliberately
+			// not rejected locally; use the 720p hold and let Pollo validate the parameter.
+			return seedance25ReturnedCreditPerSecond720p * seconds
+		}
+	}
+
+	perSec := 3.0 // Seedance 2.0 standard @720p
+	if strings.Contains(basePath, "fast") {
 		perSec = 2.4
 	}
 	resFactor := 1.0 // 720p

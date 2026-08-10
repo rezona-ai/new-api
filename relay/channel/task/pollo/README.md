@@ -2,7 +2,7 @@
 
 > 适配器位置：`relay/channel/task/pollo/`
 > Channel 类型：`ChannelTypePollo = 58`
-> 上游平台：Pollo AI `https://pollo.ai/api/platform`（文档 https://docs.pollo.ai/m/seedance/seedance-2-0）
+> 上游平台：Pollo AI `https://pollo.ai/api/platform`（[Seedance 2.0](https://docs.pollo.ai/m/seedance/seedance-2-0)、[Seedance 2.5](https://docs.pollo.ai/m/seedance/seedance-2-5)、[Seedance 2.5 Ref](https://docs.pollo.ai/m/seedance/seedance-2-5-ref)）
 > API 范式：**异步 Task**（提交 → 后台轮询 → 完成时按实际 credit 结算）
 
 本渠道的设计目标：**对 Doubao seedance 渠道（`relay/channel/task/doubao/`，参考其 README）
@@ -21,6 +21,10 @@
 - [docs/openapi-sora.yaml](docs/openapi-sora.yaml) — Sora / OpenAI Video API 格式
 - [docs/openapi-kling.yaml](docs/openapi-kling.yaml) — 可灵格式
 - [docs/openapi-jimeng.yaml](docs/openapi-jimeng.yaml) — 即梦格式
+
+支持的 Pollo 模型：`seedance-2-0`、`seedance-2-0-fast`、`seedance-2-0-mini`、
+`seedance-2-5`。其中 `seedance-2-5` 与 2.0 一样采用单模型双路由：带 refs 时自动请求
+`/generation/bytedance/seedance-2-5/ref2video`，否则请求标准 2.5 端点。
 
 ---
 
@@ -42,7 +46,7 @@
 
 | metadata 键 | Doubao | Pollo | 说明 |
 |------------|--------|-------|------|
-| `resolution` | ✅ | ✅ | 480p/720p/1080p（fast 不支持 1080p） |
+| `resolution` | ✅ | ✅ | 缺省补 720p（包括 2.5 Ref）；2.5 文档值为 480p/720p。适配器不预先拦截 1080p，由 Pollo 返回参数错误 |
 | `ratio` | ✅ | ✅ → `aspectRatio` | |
 | `duration`（int 或字符串） | ✅（`dto.IntValue` 容忍字符串） | ✅（同样容忍） | 可灵格式发 `"5"` |
 | `frames` | ✅ 透传 | ✅ 换算秒数 `(frames-1)/24` | 121→5s、241→10s |
@@ -57,6 +61,7 @@
 | `camera_fixed` / `watermark` / `return_last_frame` / `service_tier` / `draft` / `execution_expires_after` | ✅ 透传 | ⚠️ **静默忽略**（Pollo 上游无对应参数） | 上游能力差异，无法映射 |
 | `aspect_ratio` / `image` / `image_tail` / `image_urls[]`（可灵/即梦键） | ❌ 忽略 | ✅ 映射（超集） | 即梦/可灵格式可用性 |
 | `aspectRatio` / `length` / `videoNum` / `refs[]` / `imageMeta` / `imageTail` / `webSearch` / `generateAudio`（Pollo 原生键） | ❌ 忽略 | ✅ | Pollo 原生透传 |
+| `unlimited`（含显式 `false`） | ❌ 忽略 | ✅ | Seedance 2.5 Ref 原生键；用指针保留显式 false |
 | `safety_filter`（别名 `safetyFilter`） | ❌ 忽略 | ✅ → `safety_filter` | 上游文本内容审核开关。**上游只认 snake_case `safety_filter`**——驼峰 `safetyFilter` 会被上游静默忽略（实测 2026-06：发驼峰 `true` 仍正常出片、审核不触发），故 tag 必须是 snake_case，并把驼峰客户端键经别名归一化到 snake_case 兜底。指针保真：显式 `false` 不被 omitempty 丢弃；**缺省（不下发）= 上游默认关闭**。实测 snake `true` 拦截敏感 prompt（`failMsg: Text content moderation failed`、任务 `failed`），`false`/缺省放行。审核失败任务走 `TaskStatusFailure → RefundTaskQuota` 全额退预扣，对终端用户不计费 |
 
 `*` Doubao 将多图全部透传由上游按位置处理；Pollo i2v 形态只有首帧+尾帧两个槽位。
@@ -73,8 +78,12 @@
 
 与 Doubao「单模型双形态」设计一致：请求带 refs（来自 `metadata.refs` 原生透传，或
 content[] 的 reference_image/video_url/audio_url 映射）即走 `/ref2video`
-（`input.duration`+`refs[]`，必填 `aspectRatio` 自动补 `16:9`，首尾帧字段清空）；
+（`input.duration`+`refs[]`，缺省 `resolution` 自动补 `720p`，必填 `aspectRatio` 自动补
+`16:9`，首尾帧字段清空）；
 否则走标准 t2v/i2v（`input.length`+可选 `image`/`imageTail`）。
+
+Seedance 2.5 官方文档声明时长为 4–30 秒、分辨率为 480p/720p。适配器有意不做这两项
+本地范围校验：`1080p`、超过 30 秒等请求仍原样发给 Pollo，由上游返回其标准参数错误。
 
 ## 2. 输出参数兼容
 
@@ -93,6 +102,11 @@ Pollo 按 **credit** 结算：提交时调免费 `/validate` 端点精确预扣�
 （每列表 credit $0.06，即每返回 credit $0.0667）计价——9 折折扣转为我们约 10% 的毛利，
 不再泄漏给终端用户。不追求与火山直连（dreamina/doubao）±5% 对齐。详见 `adaptor.go`
 头部注释。Doubao 则按 `total_tokens` 差额重算。两者对客户端透明。
+
+`creditTokenScale=100` 可无损承载 Pollo 最多两位小数的 credit（例如 19.27 credit → 1927
+内部单位），2.5 不另建一套 token 换算。仅当 `/validate` 不可用时，本地预扣兜底才按
+BytePlus 2.5 官方 5 秒示例价格换算为 returned-credit/秒（480p=1.542、720p=3.468）；
+最终仍以 `/status` 的实际 Pollo credit 为准。
 
 ## 4. 测试
 

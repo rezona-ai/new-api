@@ -32,7 +32,12 @@ info:
     Pollo 专属扩展（Doubao 渠道忽略）：`metadata.aspectRatio`、`metadata.length`、
     `metadata.videoNum`（ref 路径 1-4）、`metadata.refs[]`（原生 ref 透传，支持
     image/subject/video/audio）、`metadata.imageMeta`、`metadata.webSearch`、
-    `metadata.generateAudio`、`metadata.imageTail`、`metadata.image`。
+    `metadata.generateAudio`、`metadata.imageTail`、`metadata.image`，以及 Seedance 2.5
+    Ref 的 `metadata.unlimited`。
+
+    Pollo 支持 `seedance-2-0`、`seedance-2-0-fast`、`seedance-2-0-mini`、
+    `seedance-2-5`。2.5 Ref 未传 resolution 时适配器补 `720p`。2.5 文档范围为
+    480p/720p、4-30 秒；适配器不拦截 1080p 或超过 30 秒，而是交给 Pollo 返回参数错误。
 
     数值/布尔字段同时接受字符串形式（如 `"duration":"5"`、`"watermark":"false"`），
     两渠道行为一致。
@@ -79,14 +84,14 @@ paths:
                         role: last_frame
                         image_url: { url: "https://example.com/last.jpg" }
               ref2video:
-                summary: 参考图/参考视频生成（自动路由 ref 形态）
+                summary: Seedance 2.5 参考图/参考视频生成（自动路由 ref 形态；resolution 缺省 720p）
                 value:
-                  model: seedance-2-0
+                  model: seedance-2-5
                   prompt: the character waves hello
                   seconds: "5"
                   metadata:
-                    resolution: 720p
                     ratio: "16:9"
+                    unlimited: false
                     content:
                       - type: image_url
                         role: reference_image
@@ -132,7 +137,7 @@ components:
       properties:
         model:
           type: string
-          description: 模型名；Doubao 渠道用 doubao-seedance-*，Pollo 渠道用 seedance-2-0 / seedance-2-0-fast / seedance-2-0-mini（可经渠道模型映射互通）
+          description: 模型名；Doubao 渠道用 doubao-seedance-*，Pollo 渠道用 seedance-2-0 / seedance-2-0-fast / seedance-2-0-mini / seedance-2-5（可经渠道模型映射互通）
           example: seedance-2-0
         prompt:
           type: string
@@ -146,18 +151,19 @@ components:
           description: 参考图 URL 列表；[0]=首帧，[1]=尾帧（Pollo i2v 最多消费两张；Doubao 全部透传）
         seconds:
           type: string
-          description: 时长（秒，字符串，OpenAI 兼容字段）。优先级最高；4-15
+          description: 时长（秒，字符串，OpenAI 兼容字段），优先级最高。模型范围由上游校验；Pollo Seedance 2.5 文档范围为 4-30，超过 30 仍透传给上游报错
           example: "5"
         metadata:
           type: object
           description: 扩展参数（见顶部字段映射表）
           properties:
-            resolution: { type: string, enum: [480p, 720p, 1080p], description: "fast 模型不支持 1080p" }
+            resolution: { type: string, enum: [480p, 720p, 1080p], description: "缺省 720p。2.5 文档仅支持 480p/720p；1080p 不在本地拦截，由 Pollo 校验" }
             ratio: { type: string, description: "宽高比：16:9/4:3/1:1/3:4/9:16/21:9/adaptive" }
             duration: { description: "时长（秒），int 或字符串", oneOf: [{ type: integer }, { type: string }] }
             frames: { type: integer, description: "帧数（24*秒+1，如 121=5s、241=10s）" }
             seed: { type: integer, description: "随机种子；显式 0 会被保留下发" }
             generate_audio: { type: boolean, default: false }
+            unlimited: { type: boolean, description: "仅 Pollo Seedance 2.5 Ref；显式 false 会保留下发" }
             camera_fixed: { type: boolean, description: "仅 Doubao" }
             watermark: { type: boolean, description: "仅 Doubao" }
             callback_url: { type: string, description: "任务回调地址" }

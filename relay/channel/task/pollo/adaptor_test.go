@@ -2,6 +2,7 @@ package pollo
 
 import (
 	"math"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -12,6 +13,8 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestMain(m *testing.M) {
@@ -266,6 +269,141 @@ func TestRequestShape_RefVsStandard(t *testing.T) {
 			t.Fatalf("empty refs[] must not be treated as a ref request")
 		}
 	})
+}
+
+func TestSeedance25_RequestShapesAndProviderValidation(t *testing.T) {
+	info := infoFor("seedance-2-5")
+
+	t.Run("standard preserves 1080p and duration over 30", func(t *testing.T) {
+		a := &TaskAdaptor{baseURL: defaultBaseURL}
+		req := &relaycommon.TaskSubmitReq{
+			Prompt:  "x",
+			Seconds: "31",
+			Metadata: map[string]any{
+				"resolution": "1080p",
+			},
+		}
+		body, err := a.convertToRequestPayload(req, info)
+		if err != nil {
+			t.Fatalf("convertToRequestPayload: %v", err)
+		}
+		if body.Input.Resolution != "1080p" || body.Input.Length != 31 {
+			t.Fatalf("resolution/length = %q/%d, want 1080p/31", body.Input.Resolution, body.Input.Length)
+		}
+		url, err := a.BuildRequestURL(info)
+		if err != nil {
+			t.Fatalf("BuildRequestURL: %v", err)
+		}
+		want := defaultBaseURL + "/generation/bytedance/seedance-2-5"
+		if url != want {
+			t.Fatalf("URL = %q, want %q", url, want)
+		}
+	})
+
+	t.Run("ref defaults resolution to 720p and preserves explicit false", func(t *testing.T) {
+		a := &TaskAdaptor{baseURL: defaultBaseURL}
+		req := &relaycommon.TaskSubmitReq{
+			Prompt:  "x",
+			Seconds: "31",
+			Metadata: map[string]any{
+				"refs": []any{map[string]any{
+					"type": "image", "name": "ref1", "image": "https://x/ref.jpg", "order": 1,
+				}},
+				"unlimited": false,
+			},
+		}
+		body, err := a.convertToRequestPayload(req, info)
+		if err != nil {
+			t.Fatalf("convertToRequestPayload: %v", err)
+		}
+		if body.Input.Resolution != "720p" {
+			t.Fatalf("missing ref resolution must default to 720p, got %q", body.Input.Resolution)
+		}
+		if body.Input.Duration != 31 || body.Input.Length != 0 {
+			t.Fatalf("duration/length = %d/%d, want 31/0", body.Input.Duration, body.Input.Length)
+		}
+		if body.Input.Unlimited == nil || bool(*body.Input.Unlimited) {
+			t.Fatalf("explicit unlimited=false must be preserved, got %v", body.Input.Unlimited)
+		}
+		raw, err := common.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if !strings.Contains(string(raw), `"unlimited":false`) {
+			t.Fatalf("marshaled body must preserve unlimited:false, got %s", raw)
+		}
+		url, err := a.BuildRequestURL(info)
+		if err != nil {
+			t.Fatalf("BuildRequestURL: %v", err)
+		}
+		want := defaultBaseURL + "/generation/bytedance/seedance-2-5/ref2video"
+		if url != want {
+			t.Fatalf("URL = %q, want %q", url, want)
+		}
+	})
+
+	t.Run("ref preserves explicit 1080p for upstream validation", func(t *testing.T) {
+		a := &TaskAdaptor{baseURL: defaultBaseURL}
+		req := &relaycommon.TaskSubmitReq{
+			Prompt: "x",
+			Metadata: map[string]any{
+				"resolution": "1080p",
+				"refs": []any{map[string]any{
+					"type": "image", "name": "ref1", "image": "https://x/ref.jpg", "order": 1,
+				}},
+			},
+		}
+		body, err := a.convertToRequestPayload(req, info)
+		if err != nil {
+			t.Fatalf("convertToRequestPayload: %v", err)
+		}
+		if body.Input.Resolution != "1080p" {
+			t.Fatalf("explicit resolution must be forwarded unchanged, got %q", body.Input.Resolution)
+		}
+	})
+
+	validateURL, ok := (&TaskAdaptor{baseURL: defaultBaseURL}).validateURL(info)
+	if !ok || validateURL != defaultBaseURL+"/generation/bytedance/seedance-2-5/validate" {
+		t.Fatalf("validate URL = %q, %v", validateURL, ok)
+	}
+	models := (&TaskAdaptor{}).GetModelList()
+	found := false
+	for _, name := range models {
+		if name == "seedance-2-5" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("GetModelList() = %v, missing seedance-2-5", models)
+	}
+}
+
+func TestSeedance25_LocalCreditFallback(t *testing.T) {
+	a := &TaskAdaptor{}
+	for _, tc := range []struct {
+		name       string
+		resolution string
+		want       float64
+	}{
+		{name: "480p", resolution: "480p", want: 5 * seedance25ReturnedCreditPerSecond480p},
+		{name: "720p", resolution: "720p", want: 5 * seedance25ReturnedCreditPerSecond720p},
+		{name: "missing defaults to 720p", want: 5 * seedance25ReturnedCreditPerSecond720p},
+		{name: "unsupported 1080p is not locally rejected", resolution: "1080p", want: 5 * seedance25ReturnedCreditPerSecond720p},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			metadata := map[string]any{}
+			if tc.resolution != "" {
+				metadata["resolution"] = tc.resolution
+			}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Set("task_request", relaycommon.TaskSubmitReq{Prompt: "x", Seconds: "5", Metadata: metadata})
+			got := a.estimateCreditLocal(c, infoFor("seedance-2-5"))
+			if math.Abs(got-tc.want) > 1e-9 {
+				t.Fatalf("estimateCreditLocal = %g, want %g", got, tc.want)
+			}
+		})
+	}
 }
 
 // TestConvertPayload_DoubaoContentRoles verifies the Doubao-compatible metadata.content[]
@@ -578,6 +716,25 @@ func TestParseTaskResult_FlatStatusCredit(t *testing.T) {
 	want := int(math.Round(4.4 * creditTokenScale))
 	if info.TotalTokens != want {
 		t.Fatalf("TotalTokens = %d, want %d (flat credit must settle from real usage)", info.TotalTokens, want)
+	}
+}
+
+func TestSeedance25CreditSettlement_UsesActualPolloCredit(t *testing.T) {
+	body := []byte(`{"code":"SUCCESS","data":{"taskId":"t25","credit":19.27,"generations":[{"id":"g","status":"succeed","url":"https://x/v.mp4","mediaType":"video"}]}}`)
+	a := &TaskAdaptor{}
+	info, err := a.ParseTaskResult(body)
+	if err != nil {
+		t.Fatalf("ParseTaskResult failed: %v", err)
+	}
+	if info.TotalTokens != 1927 || info.CompletionTokens != 1927 {
+		t.Fatalf("credit 19.27 must convert to 1927 internal units, got total=%d completion=%d", info.TotalTokens, info.CompletionTokens)
+	}
+
+	task := &model.Task{}
+	task.PrivateData.BillingContext = &model.TaskBillingContext{ModelRatio: 5.35, GroupRatio: 1}
+	want := int(math.Round(1927 * settleModelRatio / upstreamCreditDiscount))
+	if got := a.AdjustBillingOnComplete(task, info); got != want {
+		t.Fatalf("final quota = %d, want %d from actual Pollo credit", got, want)
 	}
 }
 
