@@ -153,7 +153,7 @@ func (m *gcsTransferManager) Forget(taskID string) {
 //
 // 排队时长不计入单次转存超时（超时从实际开始取流起算），整体受 transferDeadline 兜底。
 func (m *gcsTransferManager) Submit(taskID string) {
-	if taskID == "" || !GCSStorageReady() {
+	if taskID == "" || !GCSVideoTransferReady() {
 		return
 	}
 	if v, ok := m.backoff.Load(taskID); ok {
@@ -226,7 +226,7 @@ func (m *gcsTransferManager) transferTask(ctx context.Context, taskID string, at
 		return nil
 	}
 	// 紧急开关已关闭：存量任务的直链降级完成由轮询循环驱动（设计 4.6），worker 直接退出
-	if !GCSStorageReady() {
+	if !GCSVideoTransferReady() {
 		return nil
 	}
 

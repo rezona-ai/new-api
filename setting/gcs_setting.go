@@ -40,6 +40,41 @@ var (
 	GCSMaxObjectSize int64
 	// GCSSignCacheTTL 签名缓存 TTL（Workload Identity/SignBlob 路径防止高频轮询放大签名调用）
 	GCSSignCacheTTL time.Duration
+
+	// ── 生图结果转存（image-gen-cdn 设计 4.8）──
+
+	// GCSImageTransferEnabled 生图转存总开关，独立于视频侧 GCSTransferEnabled
+	GCSImageTransferEnabled bool
+	// GCSReadOnlyEnabled 两个写开关都关闭时仍初始化 GCS client，
+	// 以便读取历史 gs:// 结果（否则存量 MJ 结果会变成裸 gs:// 泄露给用户）
+	GCSReadOnlyEnabled bool
+	// GCSImagePrefix 生图对象前缀（首尾不含斜杠），与视频 api/video 同 bucket 不同前缀
+	GCSImagePrefix string
+	// GCSImageSignedURLTTL 生图签名链接有效期。/v1/images/* 无任务记录、无法二次现签，
+	// 故取 V4 协议上限 7 天（超限会被钳制到 GCSMaxV4SignedURLTTL）
+	GCSImageSignedURLTTL time.Duration
+	// GCSImageMaxSize 单图体积上限（字节）
+	GCSImageMaxSize int64
+	// GCSImageTransferTimeout 同步 HTTP 路径的单图转存预算，必须经 context 强制
+	GCSImageTransferTimeout time.Duration
+	// GCSImageStreamTimeout 流式路径的单图转存预算。必须严格小于 stream_scanner 的
+	// 10s ping 等待上限，否则会打掉 keepalive（设计 4.6.1）
+	GCSImageStreamTimeout time.Duration
+	// GCSImageMJTimeout Midjourney 后台转存的单图预算
+	GCSImageMJTimeout time.Duration
+	// GCSImageConcurrency 并发转存数上限（同一响应内 / MJ 批内共用该语义）
+	GCSImageConcurrency int
+	// GCSImageCaptureMax 生图响应缓冲上限（字节），超过即放弃改写、切直通
+	GCSImageCaptureMax int64
+	// GCSImageStripB64WhenURL 客户端未传 response_format 且转存成功时删除 b64_json
+	//（响应瘦身，属行为变更，默认关闭）
+	GCSImageStripB64WhenURL bool
+	// GCSImageDropAliMetadata 仅 Ali 渠道：转存成功时删除顶层 metadata
+	//（Ali 把完整上游响应写进该字段，内含上游直链）。其他渠道 metadata 一律保留
+	GCSImageDropAliMetadata bool
+	// GCSSignCacheMaxEntries 签名缓存条目上限 + 惰性清扫阈值。
+	// 现有缓存是无容量上限的 sync.Map，一次性对象名会导致条目无界增长
+	GCSSignCacheMaxEntries int
 )
 
 // InitGCSSettings 从环境变量加载 GCS 转存配置，必须在 common.InitEnv 之后、
@@ -55,6 +90,23 @@ func InitGCSSettings() {
 	GCSTransferTimeout = getEnvDuration("GCS_TRANSFER_TIMEOUT", 10*time.Minute)
 	GCSMaxObjectSize = getEnvByteSize("GCS_MAX_OBJECT_SIZE", 2<<30) // 2 GiB
 	GCSSignCacheTTL = getEnvDuration("GCS_SIGN_CACHE_TTL", 10*time.Minute)
+
+	GCSImageTransferEnabled = common.GetEnvOrDefaultBool("GCS_IMAGE_TRANSFER_ENABLED", false)
+	GCSReadOnlyEnabled = common.GetEnvOrDefaultBool("GCS_READ_ONLY_ENABLED", false)
+	GCSImagePrefix = strings.Trim(common.GetEnvOrDefaultString("GCS_IMAGE_PREFIX", "api/image"), "/")
+	GCSImageSignedURLTTL = clampV4SignedURLTTL("GCS_IMAGE_SIGNED_URL_TTL", getEnvDuration("GCS_IMAGE_SIGNED_URL_TTL", GCSMaxV4SignedURLTTL))
+	GCSImageMaxSize = getEnvByteSize("GCS_IMAGE_MAX_SIZE", 32<<20) // 32 MiB
+	GCSImageTransferTimeout = getEnvDuration("GCS_IMAGE_TRANSFER_TIMEOUT", 60*time.Second)
+	GCSImageStreamTimeout = getEnvDuration("GCS_IMAGE_STREAM_TIMEOUT", 5*time.Second)
+	GCSImageMJTimeout = getEnvDuration("GCS_IMAGE_MJ_TIMEOUT", 30*time.Second)
+	GCSImageConcurrency = common.GetEnvOrDefault("GCS_IMAGE_CONCURRENCY", 4)
+	GCSImageCaptureMax = getEnvByteSize("GCS_IMAGE_CAPTURE_MAX", 64<<20) // 64 MiB
+	GCSImageStripB64WhenURL = common.GetEnvOrDefaultBool("GCS_IMAGE_STRIP_B64_WHEN_URL", false)
+	GCSImageDropAliMetadata = common.GetEnvOrDefaultBool("GCS_IMAGE_DROP_ALI_METADATA", true)
+	GCSSignCacheMaxEntries = common.GetEnvOrDefault("GCS_SIGN_CACHE_MAX_ENTRIES", 10000)
+
+	// 视频侧 TTL 同样钳制：超过 V4 上限时 GCS 直接拒签，签出来也是废的
+	GCSSignedURLTTL = clampV4SignedURLTTL("GCS_SIGNED_URL_TTL", GCSSignedURLTTL)
 }
 
 // getEnvDuration 解析 time.ParseDuration 格式的环境变量（如 "12h"、"10m"），
@@ -110,4 +162,17 @@ func parseByteSize(s string) (int64, error) {
 		return 0, err
 	}
 	return num * multiplier, nil
+}
+
+// GCSMaxV4SignedURLTTL V4 签名 URL 的协议上限（7 天）。超过该值 GCS 直接拒签，
+// 因此配置解析阶段就要钳制——getEnvDuration 只校验正数，不认这个上限。
+const GCSMaxV4SignedURLTTL = 7 * 24 * time.Hour
+
+// clampV4SignedURLTTL 把签名 TTL 钳制到 V4 协议上限，并对超限配置记录错误日志。
+func clampV4SignedURLTTL(env string, d time.Duration) time.Duration {
+	if d > GCSMaxV4SignedURLTTL {
+		common.SysError(fmt.Sprintf("%s=%s exceeds the V4 signed URL limit %s, clamped to the limit", env, d, GCSMaxV4SignedURLTTL))
+		return GCSMaxV4SignedURLTTL
+	}
+	return d
 }
