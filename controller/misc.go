@@ -369,6 +369,22 @@ func ResetPassword(c *gin.Context) {
 		return
 	}
 	common.DeleteKey(req.Email, common.PasswordResetPurpose)
+	// email_reset is also audited inside ResetUserPasswordByEmail (stdout).
+	// Record a manage log for the UI / DB audit trail; no plaintext password.
+	if u, uErr := model.GetUserByEmail(req.Email); uErr == nil && u != nil {
+		adminInfo := map[string]interface{}{
+			"caller_ip": c.ClientIP(),
+			"source":    "POST /api/user/reset",
+			"email":     req.Email,
+		}
+		model.RecordLogWithAdminInfo(u.Id, model.LogTypeManage,
+			fmt.Sprintf("邮箱重置密码 username=%s", u.Username), adminInfo)
+	} else {
+		common.SysLog(fmt.Sprintf(
+			"AUDIT password_change source=email_reset_controller email=%s ip=%s (user lookup failed: %v)",
+			req.Email, c.ClientIP(), uErr,
+		))
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
