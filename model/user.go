@@ -304,6 +304,18 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 	return &user, err
 }
 
+func GetUserByEmail(email string) (*User, error) {
+	if email == "" {
+		return nil, errors.New("email 为空！")
+	}
+	var user User
+	err := DB.Omit("password").Where("email = ?", email).First(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 func GetUserIdByAffCode(affCode string) (int, error) {
 	if affCode == "" {
 		return 0, errors.New("affCode 为空！")
@@ -505,6 +517,9 @@ func (user *User) Update(updatePassword bool) error {
 	if err = DB.Model(user).Updates(newUser).Error; err != nil {
 		return err
 	}
+	if updatePassword {
+		auditPasswordChange("User.Update", user.Id, user.Username)
+	}
 
 	// Update cache
 	return updateUserCache(*user)
@@ -533,6 +548,9 @@ func (user *User) Edit(updatePassword bool) error {
 	DB.First(&user, user.Id)
 	if err = DB.Model(user).Updates(updates).Error; err != nil {
 		return err
+	}
+	if updatePassword {
+		auditPasswordChange("User.Edit", user.Id, user.Username)
 	}
 
 	// Update cache
@@ -725,8 +743,24 @@ func ResetUserPasswordByEmail(email string, password string) error {
 	if err != nil {
 		return err
 	}
-	err = DB.Model(&User{}).Where("email = ?", email).Update("password", hashedPassword).Error
-	return err
+	var target User
+	if err = DB.Select("id", "username", "email").Where("email = ?", email).First(&target).Error; err != nil {
+		return err
+	}
+	err = DB.Model(&User{}).Where("id = ?", target.Id).Update("password", hashedPassword).Error
+	if err != nil {
+		return err
+	}
+	auditPasswordChange("email_reset", target.Id, target.Username)
+	return nil
+}
+
+// auditPasswordChange emits a structured stdout line for every password write.
+// It never logs the plaintext or full hash — only identity + call source — so it
+// is safe to ship to Cloud Logging. Controller-layer RecordLog calls add the
+// operator / IP context on top of this baseline.
+func auditPasswordChange(source string, userId int, username string) {
+	common.SysLog(fmt.Sprintf("AUDIT password_change source=%s user_id=%d username=%s", source, userId, username))
 }
 
 func IsAdmin(userId int) bool {

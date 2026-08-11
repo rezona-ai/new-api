@@ -600,6 +600,20 @@ func UpdateUser(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if updatePassword {
+		adminInfo := map[string]interface{}{
+			"admin_id":       c.GetInt("id"),
+			"admin_username": c.GetString("username"),
+			"caller_ip":      c.ClientIP(),
+			"source":         "PUT /api/user/",
+		}
+		model.RecordLogWithAdminInfo(originUser.Id, model.LogTypeManage,
+			fmt.Sprintf("管理员修改用户密码 username=%s", originUser.Username), adminInfo)
+		common.SysLog(fmt.Sprintf(
+			"AUDIT password_change source=admin_edit user_id=%d username=%s by_admin_id=%d by_admin=%s ip=%s",
+			originUser.Id, originUser.Username, c.GetInt("id"), c.GetString("username"), c.ClientIP(),
+		))
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -748,6 +762,20 @@ func UpdateSelf(c *gin.Context) {
 	if err := cleanUser.Update(updatePassword); err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if updatePassword {
+		adminInfo := map[string]interface{}{
+			"user_id":   cleanUser.Id,
+			"username":  c.GetString("username"),
+			"caller_ip": c.ClientIP(),
+			"source":    "PUT /api/user/self",
+		}
+		model.RecordLogWithAdminInfo(cleanUser.Id, model.LogTypeManage,
+			fmt.Sprintf("用户修改自己的密码 username=%s", c.GetString("username")), adminInfo)
+		common.SysLog(fmt.Sprintf(
+			"AUDIT password_change source=self_edit user_id=%d username=%s ip=%s",
+			cleanUser.Id, c.GetString("username"), c.ClientIP(),
+		))
 	}
 
 	c.JSON(http.StatusOK, gin.H{
