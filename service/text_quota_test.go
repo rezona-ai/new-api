@@ -663,3 +663,44 @@ func TestMarkLocalTokenBillingSkipped(t *testing.T) {
 	adminInfo2 := other2["admin_info"].(map[string]interface{})
 	require.Equal(t, true, adminInfo2["local_token_billing_skipped"])
 }
+
+func TestCalculateTextQuotaSummary_UpstreamInputZeroOutputBillsInput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	qs := operation_setting.GetQuotaSetting()
+	origGlobal := qs.AllowLocalTokenBilling
+	t.Cleanup(func() {
+		qs.AllowLocalTokenBilling = origGlobal
+	})
+	qs.AllowLocalTokenBilling = false
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+
+	usage := &dto.Usage{
+		PromptTokens:     1000,
+		CompletionTokens: 0,
+		TotalTokens:      1000,
+	}
+	relayInfo := &relaycommon.RelayInfo{
+		OriginModelName: "gpt-4o",
+		PriceData: types.PriceData{
+			ModelRatio:      1,
+			CompletionRatio: 2,
+			GroupRatioInfo:  types.GroupRatioInfo{GroupRatio: 1},
+		},
+		StartTime: time.Now(),
+	}
+
+	summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+	require.False(t, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens))
+	require.Equal(t, 1000, summary.PromptTokens)
+	require.Equal(t, 0, summary.CompletionTokens)
+	require.Greater(t, summary.Quota, 0)
+	require.Equal(t, 1000, summary.Quota)
+
+	var extra []string
+	skipped := applyLocalTokenBillingPolicy(ctx, relayInfo, &summary.Quota, &extra)
+	require.False(t, skipped)
+	require.Equal(t, 1000, summary.Quota)
+	require.Empty(t, extra)
+}

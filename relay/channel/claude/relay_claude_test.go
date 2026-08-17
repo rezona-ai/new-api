@@ -2,10 +2,17 @@ package claude
 
 import (
 	"encoding/base64"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -379,4 +386,116 @@ func TestRequestOpenAI2ClaudeMessage_ConvertsTextFileContentToText(t *testing.T)
 	require.Equal(t, "text", content[0].Type)
 	require.NotNil(t, content[0].Text)
 	require.Equal(t, "alpha\nbeta", *content[0].Text)
+}
+
+func TestHandleStreamFinalResponse_UpstreamInputZeroOutput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	newCtx := func() *gin.Context {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+		return c
+	}
+
+	newInfo := func() *relaycommon.RelayInfo {
+		info := &relaycommon.RelayInfo{
+			RelayFormat: types.RelayFormatClaude,
+			ChannelMeta: &relaycommon.ChannelMeta{
+				UpstreamModelName: "claude-3-5-sonnet",
+			},
+		}
+		info.SetEstimatePromptTokens(999)
+		return info
+	}
+
+	const reply = "hello world this is a long enough reply to produce local tokens"
+
+	cases := []struct {
+		name            string
+		usage           *dto.Usage
+		done            bool
+		wantPrompt      int
+		wantCompletion  int
+		wantCacheRead   int
+		wantCacheCreate int
+		wantLocal       bool
+		completionGt0   bool
+	}{
+		{
+			name:           "prompt>0 completion=0 done keeps output 0",
+			usage:          &dto.Usage{PromptTokens: 100},
+			done:           true,
+			wantPrompt:     100,
+			wantCompletion: 0,
+			wantLocal:      false,
+		},
+		{
+			name:           "prompt>0 completion=0 not done does not fill",
+			usage:          &dto.Usage{PromptTokens: 100},
+			done:           false,
+			wantPrompt:     100,
+			wantCompletion: 0,
+			wantLocal:      false,
+		},
+		{
+			name: "cache only completion=0 keeps cache",
+			usage: &dto.Usage{
+				PromptTokensDetails: dto.InputTokenDetails{
+					CachedTokens:         30,
+					CachedCreationTokens: 50,
+				},
+				ClaudeCacheCreation5mTokens: 10,
+				ClaudeCacheCreation1hTokens: 20,
+			},
+			done:            false,
+			wantPrompt:      0,
+			wantCompletion:  0,
+			wantCacheRead:   30,
+			wantCacheCreate: 50,
+			wantLocal:       false,
+		},
+		{
+			name:          "no upstream usage falls back to local",
+			usage:         &dto.Usage{},
+			done:          false,
+			wantPrompt:    999,
+			completionGt0: true,
+			wantLocal:     true,
+		},
+		{
+			name:           "prompt and completion both set unchanged",
+			usage:          &dto.Usage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120},
+			done:           true,
+			wantPrompt:     100,
+			wantCompletion: 20,
+			wantLocal:      false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newCtx()
+			info := newInfo()
+			var responseText strings.Builder
+			responseText.WriteString(reply)
+			claudeInfo := &ClaudeResponseInfo{
+				Usage:        tc.usage,
+				Done:         tc.done,
+				ResponseText: responseText,
+			}
+
+			HandleStreamFinalResponse(c, info, claudeInfo)
+
+			require.Equal(t, tc.wantPrompt, claudeInfo.Usage.PromptTokens)
+			if tc.completionGt0 {
+				require.Greater(t, claudeInfo.Usage.CompletionTokens, 0)
+			} else {
+				require.Equal(t, tc.wantCompletion, claudeInfo.Usage.CompletionTokens)
+			}
+			require.Equal(t, tc.wantCacheRead, claudeInfo.Usage.PromptTokensDetails.CachedTokens)
+			require.Equal(t, tc.wantCacheCreate, claudeInfo.Usage.PromptTokensDetails.CachedCreationTokens)
+			require.Equal(t, tc.wantLocal, common.GetContextKeyBool(c, constant.ContextKeyLocalCountTokens))
+		})
+	}
 }

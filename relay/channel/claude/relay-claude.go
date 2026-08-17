@@ -1014,7 +1014,8 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 	if claudeInfo.Usage.PromptTokens == 0 {
 		//上游出错
 	}
-	if claudeInfo.Usage.CompletionTokens == 0 || !claudeInfo.Done {
+	// 仅完全无上游 usage 时才本地估算。有上游 input/cache 时即使 completion=0 或流未完成也不补、不标 local。
+	if !service.HasUpstreamTokenUsage(claudeInfo.Usage) {
 		if common.DebugEnabled {
 			common.SysLog("claude response usage is not complete, maybe upstream error")
 		}

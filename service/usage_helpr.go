@@ -34,6 +34,27 @@ func ValidUsage(usage *dto.Usage) bool {
 	return usage != nil && (usage.PromptTokens != 0 || usage.CompletionTokens != 0)
 }
 
+// HasUpstreamTokenUsage 表示 usage 带有上游返回的非 0 token 字段。
+// CompletionTokens==0 不影响结果：单独 output=0 仍可能是有效上游 usage。
+func HasUpstreamTokenUsage(usage *dto.Usage) bool {
+	if usage == nil {
+		return false
+	}
+	if usage.PromptTokens != 0 || usage.CompletionTokens != 0 {
+		return true
+	}
+	if usage.InputTokens != 0 || usage.OutputTokens != 0 {
+		return true
+	}
+	if usage.PromptTokensDetails.CachedTokens != 0 || usage.PromptTokensDetails.CachedCreationTokens != 0 {
+		return true
+	}
+	if usage.ClaudeCacheCreation5mTokens != 0 || usage.ClaudeCacheCreation1hTokens != 0 {
+		return true
+	}
+	return false
+}
+
 // AllowLocalTokenBilling 判定当前请求是否允许「本地估算 token」扣费。
 // 有效策略：global.allow_local_token_billing && !channel.disable_local_token_billing
 func AllowLocalTokenBilling(info *relaycommon.RelayInfo) bool {

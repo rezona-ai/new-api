@@ -331,3 +331,60 @@ func TestGeminiTextGenerationHandlerUsesEstimatedPromptTokensWhenUsagePromptMiss
 	require.Equal(t, 100, usage.CompletionTokens)
 	require.Equal(t, 110, usage.TotalTokens)
 }
+
+func TestGeminiStreamHandlerKeepsUpstreamInputWhenOutputZero(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	oldStreamingTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 300
+	t.Cleanup(func() {
+		constant.StreamingTimeout = oldStreamingTimeout
+	})
+
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "gemini-2.5-flash",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "gemini-2.5-flash",
+		},
+	}
+	info.SetEstimatePromptTokens(999)
+
+	chunk := dto.GeminiChatResponse{
+		Candidates: []dto.GeminiChatCandidate{
+			{
+				Content: dto.GeminiChatContent{
+					Role: "model",
+					Parts: []dto.GeminiPart{
+						{Text: "hello world this is a long enough reply to produce local tokens"},
+					},
+				},
+			},
+		},
+		UsageMetadata: dto.GeminiUsageMetadata{
+			PromptTokenCount:     151,
+			CandidatesTokenCount: 0,
+			ThoughtsTokenCount:   0,
+			TotalTokenCount:      151,
+		},
+	}
+
+	chunkData, err := common.Marshal(chunk)
+	require.NoError(t, err)
+
+	streamBody := []byte("data: " + string(chunkData) + "\n" + "data: [DONE]\n")
+	resp := &http.Response{
+		Body: io.NopCloser(bytes.NewReader(streamBody)),
+	}
+
+	usage, newAPIError := geminiStreamHandler(c, info, resp, func(_ string, _ *dto.GeminiChatResponse) bool {
+		return true
+	})
+	require.Nil(t, newAPIError)
+	require.NotNil(t, usage)
+	require.Equal(t, 151, usage.PromptTokens)
+	require.Equal(t, 0, usage.CompletionTokens)
+	require.Equal(t, 151, usage.TotalTokens)
+	require.False(t, common.GetContextKeyBool(c, constant.ContextKeyLocalCountTokens))
+}
