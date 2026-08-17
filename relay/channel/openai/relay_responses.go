@@ -130,18 +130,12 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 	})
 
-	if usage.CompletionTokens == 0 {
-		// 计算输出文本的 token 数量
+	// 有上游 input 时不补 output（即使 completion=0 且响应文本非空）。仅完全无上游 usage 才本地估算并标 local。
+	if !service.HasUpstreamTokenUsage(usage) {
 		tempStr := responseTextBuilder.String()
 		if len(tempStr) > 0 {
-			// 非正常结束，使用输出文本的 token 数量
-			completionTokens := service.CountTextToken(tempStr, info.UpstreamModelName)
-			usage.CompletionTokens = completionTokens
+			usage = service.ResponseText2Usage(c, tempStr, info.UpstreamModelName, info.GetEstimatePromptTokens())
 		}
-	}
-
-	if usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
-		usage.PromptTokens = info.GetEstimatePromptTokens()
 	}
 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens

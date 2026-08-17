@@ -1386,7 +1386,8 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		}
 	}
 
-	if usage.CompletionTokens <= 0 {
+	// 有上游 usage（含 input≠0 且 output=0）时保留原值，不整份替换。图片 1400 启发式仍在上方优先处理。
+	if usage.CompletionTokens <= 0 && !service.HasUpstreamTokenUsage(usage) {
 		if info.ReceivedResponseCount > 0 {
 			usage = service.ResponseText2Usage(c, responseText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		} else {
