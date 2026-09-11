@@ -54,6 +54,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
   SideDrawerSection,
@@ -62,7 +63,13 @@ import {
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
-import { createUser, updateUser, getUser, getGroups } from '../api'
+import {
+  createUser,
+  updateUser,
+  getUser,
+  getGroups,
+  updateUserBillingSetting,
+} from '../api'
 import { BINDING_FIELDS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
   userFormSchema,
@@ -145,6 +152,23 @@ export function UsersMutateDrawer({
       const result = isUpdate
         ? await updateUser(payload as typeof payload & { id: number })
         : await createUser(payload)
+
+      // PUT /api/user/ 不写 setting，计费豁免必须单独提交，且只在改动时提交
+      if (
+        result.success &&
+        isUpdate &&
+        currentRow &&
+        form.formState.dirtyFields.skip_bill_on_empty_result
+      ) {
+        const billingResult = await updateUserBillingSetting(
+          currentRow.id,
+          data.skip_bill_on_empty_result === true
+        )
+        if (!billingResult.success) {
+          toast.error(billingResult.message || t(ERROR_MESSAGES.UPDATE_FAILED))
+          return
+        }
+      }
 
       if (result.success) {
         toast.success(
@@ -411,6 +435,39 @@ export function UsersMutateDrawer({
                           />
                         </FormControl>
                         <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </SideDrawerSection>
+              )}
+
+              {/* Billing (Update only) */}
+              {isUpdate && (
+                <SideDrawerSection>
+                  <h3 className='text-sm font-medium'>{t('Billing')}</h3>
+
+                  <FormField
+                    control={form.control}
+                    name='skip_bill_on_empty_result'
+                    render={({ field }) => (
+                      <FormItem className='flex items-start justify-between gap-3 rounded-lg border p-3 sm:items-center sm:p-4'>
+                        <div className='space-y-0.5'>
+                          <FormLabel>
+                            {t('Skip Billing on Empty Result')}
+                          </FormLabel>
+                          <FormDescription>
+                            {t(
+                              'Charge nothing for this user when the upstream returns no usage or zero output tokens'
+                            )}
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            className='shrink-0'
+                            checked={field.value === true}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
                       </FormItem>
                     )}
                   />

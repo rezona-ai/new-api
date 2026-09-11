@@ -3658,6 +3658,8 @@
     "Sidebar collapsed by default for new users": "Sidebar collapsed by default for new users",
     "Sidebar modules": "Sidebar modules",
     "Sidebar Personal Settings": "Sidebar Personal Settings",
+    "Skip Billing on Empty Result": "Skip Billing on Empty Result",
+    "Charge nothing for this user when the upstream returns no usage or zero output tokens": "Charge nothing for this user when the upstream returns no usage or zero output tokens",
     "Sign in": "Sign in",
     "Sign In": "Sign In",
     "Sign in now": "Sign in now",

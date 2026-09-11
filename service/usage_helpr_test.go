@@ -1,9 +1,14 @@
 package service
 
 import (
+	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,4 +79,146 @@ func TestValidUsageUnchanged(t *testing.T) {
 	require.False(t, ValidUsage(&dto.Usage{
 		PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 9},
 	}))
+}
+
+func TestUpstreamOutputTokens(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, 0, upstreamOutputTokens(nil))
+	require.Equal(t, 0, upstreamOutputTokens(&dto.Usage{}))
+	require.Equal(t, 7, upstreamOutputTokens(&dto.Usage{CompletionTokens: 7}))
+	require.Equal(t, 5, upstreamOutputTokens(&dto.Usage{OutputTokens: 5}))
+	// completion 优先于 output，两者同时存在时不重复计数
+	require.Equal(t, 7, upstreamOutputTokens(&dto.Usage{CompletionTokens: 7, OutputTokens: 5}))
+}
+
+func TestApplyEmptyResultBillingPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	newCtx := func(localCount bool) *gin.Context {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		if localCount {
+			common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+		}
+		return c
+	}
+	newInfo := func(enabled bool) *relaycommon.RelayInfo {
+		return &relaycommon.RelayInfo{
+			UserSetting: dto.UserSetting{SkipBillOnEmptyResult: enabled},
+		}
+	}
+
+	cases := []struct {
+		name        string
+		enabled     bool
+		localCount  bool
+		usage       *dto.Usage
+		wantSkipped bool
+		wantQuota   int
+		wantExtra   string
+	}{
+		{
+			name:        "开关关闭 output=0 照常计费",
+			enabled:     false,
+			usage:       &dto.Usage{PromptTokens: 1000},
+			wantSkipped: false,
+			wantQuota:   1000,
+		},
+		{
+			name:        "开关关闭 本地估算 照常计费",
+			enabled:     false,
+			localCount:  true,
+			usage:       &dto.Usage{PromptTokens: 1000, CompletionTokens: 20},
+			wantSkipped: false,
+			wantQuota:   1000,
+		},
+		{
+			name:        "开关开启 有 input 但 output=0 整单不扣",
+			enabled:     true,
+			usage:       &dto.Usage{PromptTokens: 1000, TotalTokens: 1000},
+			wantSkipped: true,
+			wantQuota:   0,
+			wantExtra:   "用户已开启空结果不计费，上游输出为 0，未扣费",
+		},
+		{
+			name:        "开关开启 只有 cache 且 output=0 整单不扣",
+			enabled:     true,
+			usage:       &dto.Usage{PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 500}},
+			wantSkipped: true,
+			wantQuota:   0,
+			wantExtra:   "用户已开启空结果不计费，上游输出为 0，未扣费",
+		},
+		{
+			name:        "开关开启 本地估算 整单不扣",
+			enabled:     true,
+			localCount:  true,
+			usage:       &dto.Usage{PromptTokens: 999, CompletionTokens: 42},
+			wantSkipped: true,
+			wantQuota:   0,
+			wantExtra:   "用户已开启空结果不计费，无上游 usage，未扣费",
+		},
+		{
+			name:        "开关开启 output>0 照常计费",
+			enabled:     true,
+			usage:       &dto.Usage{PromptTokens: 1000, CompletionTokens: 20},
+			wantSkipped: false,
+			wantQuota:   1000,
+		},
+		{
+			name:        "开关开启 responses 语义 output>0 照常计费",
+			enabled:     true,
+			usage:       &dto.Usage{InputTokens: 1000, OutputTokens: 3},
+			wantSkipped: false,
+			wantQuota:   1000,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newCtx(tc.localCount)
+			quota := 1000
+			var extra []string
+			skipped := applyEmptyResultBillingPolicy(c, newInfo(tc.enabled), tc.usage, &quota, &extra)
+			require.Equal(t, tc.wantSkipped, skipped)
+			require.Equal(t, tc.wantQuota, quota)
+			if tc.wantExtra == "" {
+				require.Empty(t, extra)
+			} else {
+				require.Equal(t, []string{tc.wantExtra}, extra)
+			}
+		})
+	}
+}
+
+func TestApplyEmptyResultBillingPolicy_NilGuards(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	quota := 100
+
+	require.False(t, applyEmptyResultBillingPolicy(nil, nil, nil, &quota, nil))
+	require.False(t, applyEmptyResultBillingPolicy(c, nil, nil, nil, nil))
+	// relayInfo 为 nil 时视为未开启，不得改动 quota
+	require.False(t, applyEmptyResultBillingPolicy(c, nil, nil, &quota, nil))
+	require.Equal(t, 100, quota)
+}
+
+func TestMarkEmptyResultBillingSkipped(t *testing.T) {
+	t.Parallel()
+
+	other := map[string]interface{}{}
+	markEmptyResultBillingSkipped(other)
+	adminInfo := other["admin_info"].(map[string]interface{})
+	require.Equal(t, true, adminInfo["billing_skipped"])
+	require.Equal(t, "user_skip_bill_on_empty_result", adminInfo["billing_skip_reason"])
+
+	// 已有 admin_info 时就地补字段，不覆盖原有内容
+	other2 := map[string]interface{}{"admin_info": map[string]interface{}{"admin_id": 7}}
+	markEmptyResultBillingSkipped(other2)
+	adminInfo2 := other2["admin_info"].(map[string]interface{})
+	require.Equal(t, 7, adminInfo2["admin_id"])
+	require.Equal(t, true, adminInfo2["billing_skipped"])
+
+	require.NotPanics(t, func() { markEmptyResultBillingSkipped(nil) })
 }
