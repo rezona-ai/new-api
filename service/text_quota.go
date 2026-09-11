@@ -387,6 +387,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	// 本地估算路径且策略关闭：整单不扣费（保留估算 token 供日志审计）。
 	localTokenBillingSkipped := applyLocalTokenBillingPolicy(ctx, relayInfo, &summary.Quota, &extraContent)
+	// 白名单用户的「空结果不计费」：无上游 usage 或上游 output=0 时整单不扣费。
+	emptyResultBillingSkipped := false
+	if !localTokenBillingSkipped {
+		emptyResultBillingSkipped = applyEmptyResultBillingPolicy(ctx, relayInfo, usage, &summary.Quota, &extraContent)
+	}
 
 	if summary.TotalTokens == 0 {
 		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
@@ -486,6 +491,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	if localTokenBillingSkipped {
 		markLocalTokenBillingSkipped(other)
+	}
+	if emptyResultBillingSkipped {
+		markEmptyResultBillingSkipped(other)
 	}
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{

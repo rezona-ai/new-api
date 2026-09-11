@@ -94,6 +94,14 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	}
+	if option.Key == operation_setting.SkipBillOnEmptyResultUserIdsKey {
+		normalized, err := operation_setting.NormalizeSkipBillOnEmptyResultUserIds(option.Value.(string))
+		if err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+		option.Value = normalized
+	}
 	switch option.Key {
 	case "GitHubOAuthEnabled":
 		if option.Value == "true" && common.GitHubClientId == "" {

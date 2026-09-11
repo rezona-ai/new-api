@@ -19,7 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { parseCurrencyDisplayType } from '@/lib/currency'
 import { CheckinSettingsSection } from '../general/checkin-settings-section'
 import { PricingSection } from '../general/pricing-section'
-import { QuotaSettingsSection } from '../general/quota-settings-section'
+import {
+  QuotaSettingsSection,
+  formatUserIdList,
+} from '../general/quota-settings-section'
 import { PaymentSettingsSection } from '../integrations/payment-settings-section'
 import { RatioSettingsCard } from '../models/ratio-settings-card'
 import type { BillingSettings } from '../types'
@@ -71,6 +74,9 @@ const BILLING_SECTIONS = [
               settings['quota_setting.enable_free_model_pre_consume'],
             allow_local_token_billing:
               settings['quota_setting.allow_local_token_billing'],
+            skip_bill_on_empty_result_user_ids: formatUserIdList(
+              settings['quota_setting.skip_bill_on_empty_result_user_ids']
+            ),
           },
         }}
         complianceConfirmed={

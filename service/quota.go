@@ -340,6 +340,11 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		audioExtraContents = append(audioExtraContents, extraContent)
 	}
 	localTokenBillingSkipped := applyLocalTokenBillingPolicy(ctx, relayInfo, &quota, &audioExtraContents)
+	// 白名单用户的「空结果不计费」：无上游 usage 或上游 output=0 时整单不扣费。
+	emptyResultBillingSkipped := false
+	if !localTokenBillingSkipped {
+		emptyResultBillingSkipped = applyEmptyResultBillingPolicy(ctx, relayInfo, usage, &quota, &audioExtraContents)
+	}
 
 	// record all the consume log even if quota is 0
 	if totalTokens == 0 {
@@ -369,6 +374,9 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 	}
 	if localTokenBillingSkipped {
 		markLocalTokenBillingSkipped(other)
+	}
+	if emptyResultBillingSkipped {
+		markEmptyResultBillingSkipped(other)
 	}
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
