@@ -196,6 +196,8 @@ export type BillingSettings = {
   'general_setting.docs_link': string
   'quota_setting.enable_free_model_pre_consume': boolean
   'quota_setting.allow_local_token_billing': boolean
+  /** JSON 数组串，如 "[1,2,3]"；空结果不计费用户白名单 */
+  'quota_setting.skip_bill_on_empty_result_user_ids': string
   QuotaPerUnit: number
   USDExchangeRate: number
   'general_setting.quota_display_type': string

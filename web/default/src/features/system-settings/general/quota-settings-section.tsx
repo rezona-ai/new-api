@@ -47,6 +47,24 @@ import { SettingsSection } from '../components/settings-section'
 import { useSettingsForm } from '../hooks/use-settings-form'
 import { useUpdateOption } from '../hooks/use-update-option'
 
+/**
+ * 后端把白名单存成 JSON 数组串（"[1,2,3]"）。表单里显示成 "1, 2, 3" 更好读，
+ * 提交时原样回传——后端的 NormalizeSkipBillOnEmptyResultUserIds 同时接受两种写法。
+ */
+export function formatUserIdList(raw?: string): string {
+  if (!raw) return ''
+  const trimmed = raw.trim()
+  if (!trimmed || trimmed === '[]' || trimmed === 'null') return ''
+  if (!trimmed.startsWith('[')) return trimmed
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    if (!Array.isArray(parsed)) return trimmed
+    return parsed.join(', ')
+  } catch {
+    return trimmed
+  }
+}
+
 const quotaSchema = z.object({
   QuotaForNewUser: z.coerce.number().min(0),
   PreConsumedQuota: z.coerce.number().min(0),
@@ -59,6 +77,14 @@ const quotaSchema = z.object({
   quota_setting: z.object({
     enable_free_model_pre_consume: z.boolean(),
     allow_local_token_billing: z.boolean(),
+    skip_bill_on_empty_result_user_ids: z
+      .string()
+      .refine(
+        (value) =>
+          value.trim() === '' ||
+          /^\s*\[?\s*\d+(\s*[,，\s]\s*\d+)*\s*\]?\s*$/.test(value),
+        { message: 'Enter positive user IDs separated by commas' }
+      ),
   }),
 })
 
@@ -267,6 +293,33 @@ export function QuotaSettingsSection({
                       />
                     </FormControl>
                   </SettingsSwitchItem>
+                )}
+              />
+            </SettingsFormGridItem>
+
+            <SettingsFormGridItem span='full'>
+              <FormField
+                control={form.control}
+                name='quota_setting.skip_bill_on_empty_result_user_ids'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('Skip Billing on Empty Result (User IDs)')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder='1, 2, 35'
+                        {...field}
+                        disabled={updateOption.isPending}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Comma-separated user IDs. Listed users are charged nothing when the upstream returns no usage or zero output tokens. Leave empty to disable.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
                 )}
               />
             </SettingsFormGridItem>
