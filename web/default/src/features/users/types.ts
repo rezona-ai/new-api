@@ -57,6 +57,8 @@ export const userSchema = z.object({
   last_login_at: z.number().optional(),
   DeletedAt: z.any().nullable().optional(),
   remark: z.string().optional(),
+  /** JSON 串，含管理员配置的计费豁免等开关 */
+  setting: z.string().optional(),
 })
 export type User = z.infer<typeof userSchema>
 

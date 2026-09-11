@@ -16,6 +16,7 @@ type UserSetting struct {
 	SidebarModules                   string  `json:"sidebar_modules,omitempty"`                      // SidebarModules 左侧边栏模块配置
 	BillingPreference                string  `json:"billing_preference,omitempty"`                   // BillingPreference 扣费策略（订阅/钱包）
 	Language                         string  `json:"language,omitempty"`                             // Language 用户语言偏好 (zh, en)
+	SkipBillOnEmptyResult            bool    `json:"skip_bill_on_empty_result,omitempty"`            // SkipBillOnEmptyResult 空结果不计费：无上游 usage 或上游 output token=0 时整单不扣费（仅管理员可设置）
 }
 
 var (

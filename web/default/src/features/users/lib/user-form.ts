@@ -33,6 +33,7 @@ export const userFormSchema = z.object({
   quota_dollars: z.number().min(0).optional(),
   group: z.string().optional(),
   remark: z.string().optional(),
+  skip_bill_on_empty_result: z.boolean().optional(),
 })
 
 export type UserFormValues = z.infer<typeof userFormSchema>
@@ -49,6 +50,7 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
   quota_dollars: 0,
   group: DEFAULT_GROUP,
   remark: '',
+  skip_bill_on_empty_result: false,
 }
 
 // ============================================================================
@@ -82,6 +84,20 @@ export function transformFormDataToPayload(
 }
 
 /**
+ * Read the admin-only billing exemption flag out of the user's setting JSON.
+ * Returns false for missing or malformed settings.
+ */
+export function parseSkipBillOnEmptyResult(setting?: string): boolean {
+  if (!setting) return false
+  try {
+    const parsed = JSON.parse(setting) as Record<string, unknown>
+    return parsed.skip_bill_on_empty_result === true
+  } catch {
+    return false
+  }
+}
+
+/**
  * Transform user data to form defaults
  */
 export function transformUserToFormDefaults(user: User): UserFormValues {
@@ -93,5 +109,6 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
     quota_dollars: quotaUnitsToDollars(user.quota),
     group: user.group || DEFAULT_GROUP,
     remark: user.remark || '',
+    skip_bill_on_empty_result: parseSkipBillOnEmptyResult(user.setting),
   }
 }

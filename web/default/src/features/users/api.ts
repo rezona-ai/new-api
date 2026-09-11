@@ -97,6 +97,21 @@ export async function updateUser(
 }
 
 /**
+ * Set the admin-only billing exemption flag. Not part of PUT /api/user/:
+ * that endpoint only writes username/display_name/group/remark.
+ */
+export async function updateUserBillingSetting(
+  userId: number,
+  skipBillOnEmptyResult: boolean
+): Promise<ApiResponse> {
+  const res = await api.post('/api/user/billing_setting', {
+    user_id: userId,
+    skip_bill_on_empty_result: skipBillOnEmptyResult,
+  })
+  return res.data
+}
+
+/**
  * Delete a single user (hard delete)
  */
 export async function deleteUser(id: number): Promise<ApiResponse> {

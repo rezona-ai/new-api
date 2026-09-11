@@ -1283,6 +1283,8 @@ func UpdateUserSetting(c *gin.Context) {
 		UpstreamModelUpdateNotifyEnabled: upstreamModelUpdateNotifyEnabled,
 		AcceptUnsetRatioModel:            req.AcceptUnsetModelRatioModel,
 		RecordIpLog:                      req.RecordIpLog,
+		// 计费豁免只能由管理员写入，这里必须原样继承，否则用户保存一次设置就会把它抹掉。
+		SkipBillOnEmptyResult: existingSettings.SkipBillOnEmptyResult,
 	}
 
 	// 如果是webhook类型,添加webhook相关设置
@@ -1323,6 +1325,63 @@ func UpdateUserSetting(c *gin.Context) {
 	}
 
 	common.ApiSuccessI18n(c, i18n.MsgSettingSaved, nil)
+}
+
+// UpdateUserBillingSettingRequest is the body of POST /api/user/billing_setting.
+type UpdateUserBillingSettingRequest struct {
+	UserId                int   `json:"user_id"`
+	SkipBillOnEmptyResult *bool `json:"skip_bill_on_empty_result"`
+}
+
+// UpdateUserBillingSetting 设置用户级计费豁免开关。Admin-only：该开关会让命中的请求
+// 整单不扣费，绝不能暴露在用户自助设置接口上。
+func UpdateUserBillingSetting(c *gin.Context) {
+	var req UpdateUserBillingSettingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	if req.UserId == 0 || req.SkipBillOnEmptyResult == nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	user, err := model.GetUserById(req.UserId, true)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !canManageTargetRole(c.GetInt("role"), user.Role) {
+		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
+		return
+	}
+
+	setting := user.GetSetting()
+	setting.SkipBillOnEmptyResult = *req.SkipBillOnEmptyResult
+	user.SetSetting(setting)
+	if err := user.Update(false); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
+		return
+	}
+
+	adminInfo := map[string]interface{}{
+		"admin_id":       c.GetInt("id"),
+		"admin_username": c.GetString("username"),
+		"caller_ip":      c.ClientIP(),
+		"source":         "POST /api/user/billing_setting",
+	}
+	model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
+		fmt.Sprintf("管理员设置空结果不计费 username=%s skip_bill_on_empty_result=%v",
+			user.Username, *req.SkipBillOnEmptyResult), adminInfo)
+	common.SysLog(fmt.Sprintf(
+		"AUDIT skip_bill_on_empty_result user_id=%d username=%s value=%v by_admin_id=%d by_admin=%s ip=%s",
+		user.Id, user.Username, *req.SkipBillOnEmptyResult, c.GetInt("id"), c.GetString("username"), c.ClientIP(),
+	))
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    gin.H{"skip_bill_on_empty_result": *req.SkipBillOnEmptyResult},
+	})
 }
 
 // DebitQuotaRequest is the body of POST /api/user/quota/debit.
